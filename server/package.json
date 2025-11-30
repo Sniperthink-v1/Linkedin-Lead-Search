@@ -1,21 +1,26 @@
 {
   "name": "linkedin-lead-search-server",
   "version": "1.0.0",
-  "description": "Backend for LinkedIn Lead Search",
-  "main": "server.js",
+  "description": "Backend for LinkedIn Lead Search using Serper API",
+  "main": "server-serper-linkedin.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "dev:puppeteer": "node --watch server-puppeteer.js"
+    "start:linkedin": "node server-serper-linkedin.js",
+    "start:business": "node server-serper-business.js",
+    "dev:linkedin": "node --watch server-serper-linkedin.js",
+    "dev:business": "node --watch server-serper-business.js"
   },
-  "keywords": [],
+  "keywords": [
+    "linkedin",
+    "lead-search",
+    "serper-api",
+    "business-leads"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "axios": "^1.6.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "puppeteer": "^24.31.0"
+    "express": "^4.18.2"
   }
 }

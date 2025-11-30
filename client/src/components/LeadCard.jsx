@@ -1,26 +1,14 @@
 import React from "react";
-import {
-  ExternalLink,
-  Building2,
-  MapPin,
-  Users,
-  Briefcase,
-  Globe,
-} from "lucide-react";
+import { ExternalLink, User, MapPin, Briefcase, Building2 } from "lucide-react";
 import { motion } from "framer-motion";
 
 const LeadCard = ({ lead, index }) => {
-  const [logoSrc, setLogoSrc] = React.useState(lead.logo);
-  const [showFallback, setShowFallback] = React.useState(!lead.logo);
+  const [profilePicSrc, setProfilePicSrc] = React.useState(lead.profilePic);
+  const [showFallback, setShowFallback] = React.useState(!lead.profilePic);
 
   const handleImageError = () => {
-    // Try the secondary fallback if available
-    if (logoSrc === lead.logo && lead.logoFallback) {
-      setLogoSrc(lead.logoFallback);
-    } else {
-      // Show building icon
-      setShowFallback(true);
-    }
+    // Show user icon fallback
+    setShowFallback(true);
   };
 
   return (
@@ -32,42 +20,42 @@ const LeadCard = ({ lead, index }) => {
     >
       <div className="flex justify-between items-start mb-4">
         <div className="flex items-start gap-4 flex-1 min-w-0">
-          {!showFallback && logoSrc ? (
+          {!showFallback && profilePicSrc ? (
             <img
-              src={logoSrc}
-              alt={lead.companyName}
-              className="w-12 h-12 rounded-lg object-cover flex-shrink-0 bg-white/5"
+              src={profilePicSrc}
+              alt={lead.personName}
+              className="w-12 h-12 rounded-full object-cover flex-shrink-0 bg-white/5"
               onError={handleImageError}
             />
           ) : (
-            <div className="w-12 h-12 bg-gray-800 rounded-lg flex items-center justify-center text-primary group-hover:bg-primary/10 transition-colors flex-shrink-0">
-              <Building2 className="w-6 h-6" />
+            <div className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-primary group-hover:bg-primary/10 transition-colors flex-shrink-0">
+              <User className="w-6 h-6" />
             </div>
           )}
           <div className="flex-1 min-w-0">
             <h3 className="text-lg font-semibold text-white group-hover:text-primary transition-colors truncate">
-              {lead.companyName}
+              {lead.personName}
             </h3>
-            {lead.industry && (
+            {lead.jobTitle && (
               <p className="text-gray-400 text-sm flex items-center gap-1 mt-1">
                 <Briefcase className="w-3 h-3 flex-shrink-0" />
-                <span className="truncate">{lead.industry}</span>
+                <span className="truncate">{lead.jobTitle}</span>
               </p>
             )}
-            {lead.displayLink && (
+            {lead.company && (
               <p className="text-gray-500 text-xs flex items-center gap-1 mt-1">
-                <Globe className="w-3 h-3 flex-shrink-0" />
-                <span className="truncate">{lead.displayLink}</span>
+                <Building2 className="w-3 h-3 flex-shrink-0" />
+                <span className="truncate">{lead.company}</span>
               </p>
             )}
           </div>
         </div>
         <a
-          href={lead.link}
+          href={lead.profileLink}
           target="_blank"
           rel="noopener noreferrer"
           className="text-gray-500 hover:text-white transition-colors flex-shrink-0 ml-2"
-          title="View on web"
+          title="View LinkedIn profile"
         >
           <ExternalLink className="w-5 h-5" />
         </a>
@@ -82,12 +70,6 @@ const LeadCard = ({ lead, index }) => {
             <span className="truncate max-w-[200px]" title={lead.location}>
               {lead.location}
             </span>
-          </div>
-        )}
-        {lead.companySize && lead.companySize.trim() && (
-          <div className="flex items-center gap-1">
-            <Users className="w-3 h-3 flex-shrink-0" />
-            <span>{lead.companySize}</span>
           </div>
         )}
       </div>

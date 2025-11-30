@@ -1,11 +1,10 @@
 import React, { useState } from "react";
 import { Search, Loader2 } from "lucide-react";
 
-const SearchForm = ({ onSearch, isLoading }) => {
+const BusinessSearchForm = ({ onSearch, isLoading }) => {
   const [formData, setFormData] = useState({
     businessType: "",
     location: "",
-    industry: "",
   });
 
   const handleSubmit = (e) => {
@@ -18,14 +17,14 @@ const SearchForm = ({ onSearch, isLoading }) => {
       onSubmit={handleSubmit}
       className="w-full max-w-4xl mx-auto bg-dark p-8 rounded-2xl shadow-2xl border border-gray-800"
     >
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="space-y-2">
           <label className="text-sm font-medium text-gray-400">
-            Job Title / Role
+            Business Type
           </label>
           <input
             type="text"
-            placeholder="e.g. Software Engineer, Marketing Manager"
+            placeholder="e.g. Restaurant, Hospital, Auto Dealer"
             className="w-full bg-darker border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
             value={formData.businessType}
             onChange={(e) =>
@@ -47,20 +46,6 @@ const SearchForm = ({ onSearch, isLoading }) => {
             required
           />
         </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-400">
-            Industry (Optional)
-          </label>
-          <input
-            type="text"
-            placeholder="e.g. Technology, Finance, Healthcare"
-            className="w-full bg-darker border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
-            value={formData.industry}
-            onChange={(e) =>
-              setFormData({ ...formData, industry: e.target.value })
-            }
-          />
-        </div>
       </div>
 
       <div className="mt-8 flex justify-end">
@@ -77,7 +62,7 @@ const SearchForm = ({ onSearch, isLoading }) => {
           ) : (
             <>
               <Search className="w-5 h-5" />
-              Find People
+              Find Businesses
             </>
           )}
         </button>
@@ -86,4 +71,4 @@ const SearchForm = ({ onSearch, isLoading }) => {
   );
 };
 
-export default SearchForm;
+export default BusinessSearchForm;
