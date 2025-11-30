@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import axios from "axios";
 import SearchForm from "./components/SearchForm";
 import BusinessSearchForm from "./components/BusinessSearchForm";
 import {
@@ -11,6 +10,9 @@ import {
   Copy,
 } from "lucide-react";
 import * as XLSX from "xlsx";
+
+// Get API URL from environment variable or use localhost as fallback
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 function App() {
   const [activeTab, setActiveTab] = useState("people"); // 'people' or 'business'
@@ -142,7 +144,7 @@ function App() {
     try {
       // Use EventSource for Server-Sent Events (SSE) to receive streaming results
       const params = new URLSearchParams(formData).toString();
-      const eventSource = new EventSource(`/api/leads?${params}`);
+      const eventSource = new EventSource(`${API_URL}/api/leads?${params}`);
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
@@ -162,7 +164,7 @@ function App() {
         console.error("EventSource error:", err);
         eventSource.close();
         setError(
-          "Failed to connect to server. Please make sure the backend is running on port 3000."
+          "Failed to connect to server. Please check your internet connection and try again."
         );
         setLoading(false);
       };
@@ -184,7 +186,7 @@ function App() {
       // Use EventSource for Server-Sent Events (SSE) to receive streaming results
       const params = new URLSearchParams(formData).toString();
       const eventSource = new EventSource(
-        `http://localhost:3001/api/business-leads?${params}`
+        `${API_URL}/api/business-leads?${params}`
       );
 
       eventSource.onmessage = (event) => {
@@ -205,7 +207,7 @@ function App() {
         console.error("EventSource error:", err);
         eventSource.close();
         setError(
-          "Failed to connect to server. Please make sure the backend is running on port 3001."
+          "Failed to connect to server. Please check your internet connection and try again."
         );
         setLoading(false);
       };

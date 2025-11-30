@@ -20,10 +20,17 @@ A powerful lead generation tool that searches for LinkedIn profiles and local bu
 
 ## Tech Stack
 
-- **Frontend**: React 18 + Vite + Tailwind CSS
-- **Backend**: Node.js + Express
+- **Frontend**: React 18 + Vite + Tailwind CSS (Deployed on Vercel)
+- **Backend**: Node.js + Express (Deployed on Railway)
 - **API**: Serper API (Web Search + Maps)
 - **Data Export**: XLSX library
+
+## 🚀 Deployment
+
+This project is production-ready and can be deployed easily:
+
+- **Backend**: Deploy to Railway - See [RAILWAY_DEPLOYMENT.md](./RAILWAY_DEPLOYMENT.md)
+- **Frontend**: Deploy to Vercel - See [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md)
 
 ## Setup
 
@@ -57,34 +64,32 @@ npm install
 
 4. **Configure environment variables**
 
-Create/edit `server/.env`:
+**Server** - Create/edit `server/.env`:
 
 ```env
 SERPER_API_KEY=your_serper_api_key_here
 PORT=3000
 ```
 
+**Client** - Create `client/.env` (for local development):
+
+```env
+VITE_API_URL=http://localhost:3000
+```
+
 Get your free API key at: https://serper.dev/
 
-### Running the Application
+### Running the Application (Local Development)
 
-1. **Start LinkedIn search server** (Terminal 1)
+1. **Start unified server**
 
 ```bash
 cd server
-npm run start:linkedin
+npm start
 # Runs on http://localhost:3000
 ```
 
-2. **Start Business search server** (Terminal 2)
-
-```bash
-cd server
-npm run start:business
-# Runs on http://localhost:3001
-```
-
-3. **Start frontend** (Terminal 3)
+2. **Start frontend**
 
 ```bash
 cd client

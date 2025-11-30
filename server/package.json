@@ -2,12 +2,10 @@
   "name": "linkedin-lead-search-server",
   "version": "1.0.0",
   "description": "Backend for LinkedIn Lead Search using Serper API",
-  "main": "server-serper-linkedin.js",
+  "main": "server.js",
   "scripts": {
-    "start:linkedin": "node server-serper-linkedin.js",
-    "start:business": "node server-serper-business.js",
-    "dev:linkedin": "node --watch server-serper-linkedin.js",
-    "dev:business": "node --watch server-serper-business.js"
+    "start": "node server.js",
+    "dev": "node --watch server.js"
   },
   "keywords": [
     "linkedin",
