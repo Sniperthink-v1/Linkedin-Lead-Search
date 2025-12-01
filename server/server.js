@@ -124,22 +124,40 @@ Requirements:
       );
 
       try {
-        // Search for LinkedIn profile using Serper
-        const serperResponse = await axios.post(
-          "https://google.serper.dev/search",
-          {
-            q: `site:linkedin.com/in/ "${basicProfile.name}" "${basicProfile.role}" "${location}"`,
-            num: 3,
-          },
-          {
-            headers: {
-              "X-API-KEY": SERPER_API_KEY,
-              "Content-Type": "application/json",
-            },
-          }
-        );
+        // Try multiple search queries to find LinkedIn profile
+        let results = [];
+        const searchQueries = [
+          `site:linkedin.com/in/ "${basicProfile.name}" "${basicProfile.role}" "${location}"`,
+          `site:linkedin.com/in/ "${basicProfile.name}" "${location}"`,
+          `site:linkedin.com/in/ "${basicProfile.name}" ${basicProfile.role}`,
+        ];
 
-        const results = serperResponse.data.organic || [];
+        for (const query of searchQueries) {
+          try {
+            const serperResponse = await axios.post(
+              "https://google.serper.dev/search",
+              {
+                q: query,
+                num: 3,
+              },
+              {
+                headers: {
+                  "X-API-KEY": SERPER_API_KEY,
+                  "Content-Type": "application/json",
+                },
+              }
+            );
+
+            results = serperResponse.data.organic || [];
+            if (results.length > 0) {
+              console.log(`Found profile with query: ${query}`);
+              break;
+            }
+          } catch (queryError) {
+            console.log(`Query failed: ${query}`);
+            continue;
+          }
+        }
 
         if (results.length > 0) {
           const result = results[0];
@@ -196,32 +214,9 @@ Requirements:
 
           console.log(`✅ Enriched lead ${i + 1}/${basicProfiles.length}`);
         } else {
-          console.log(`❌ No Serper results for ${basicProfile.name}`);
-
-          // Send basic info if no Serper results
-          const fallbackLead = {
-            personName: basicProfile.name,
-            jobTitle: basicProfile.role,
-            company: "",
-            location: location,
-            profileLink: "",
-            snippet: "Profile found by AI",
-            profilePic: `https://ui-avatars.com/api/?name=${encodeURIComponent(
-              basicProfile.name
-            )}&background=0D8ABC&color=fff&size=128`,
-            title: `${basicProfile.name} - ${basicProfile.role}`,
-          };
-
-          enrichedLeads.push(fallbackLead);
-
-          // Send progressive update
-          sendUpdate({
-            type: "progress",
-            leads: enrichedLeads,
-            total: enrichedLeads.length,
-            page: i + 1,
-            message: `Processing ${i + 1}/${basicProfiles.length} profiles...`,
-          });
+          console.log(`❌ No Serper results for ${basicProfile.name}, skipping...`);
+          // Skip profiles without LinkedIn links - non-negotiable requirement
+          continue;
         }
 
         // Delay to respect rate limits
@@ -231,31 +226,8 @@ Requirements:
           `Serper API error for ${basicProfile.name}:`,
           serperError.message
         );
-
-        // Send basic info if Serper fails
-        const fallbackLead = {
-          personName: basicProfile.name,
-          jobTitle: basicProfile.role,
-          company: "",
-          location: location,
-          profileLink: "",
-          snippet: "Profile found by AI",
-          profilePic: `https://ui-avatars.com/api/?name=${encodeURIComponent(
-            basicProfile.name
-          )}&background=0D8ABC&color=fff&size=128`,
-          title: `${basicProfile.name} - ${basicProfile.role}`,
-        };
-
-        enrichedLeads.push(fallbackLead);
-
-        // Send progressive update
-        sendUpdate({
-          type: "progress",
-          leads: enrichedLeads,
-          total: enrichedLeads.length,
-          page: i + 1,
-          message: `Processing ${i + 1}/${basicProfiles.length} profiles...`,
-        });
+        // Skip profiles with errors - no LinkedIn link means skip
+        continue;
       }
     }
 
@@ -337,15 +309,17 @@ app.get("/api/business-leads", async (req, res) => {
 
     const geminiPrompt = `Find 15 real businesses for "${businessType}" in "${location}". 
 
-For each business, provide ONLY these 3 essential details:
+For each business, provide ONLY these 4 essential details:
 1. Business name
-2. Contact phone number (with country code if available)
-3. Email address
+2. Complete address with area name
+3. Contact phone number (with country code if available)
+4. Email address
 
 Return ONLY a valid JSON array:
 [
   {
     "name": "Business Name",
+    "address": "Complete address with area, ${location}",
     "phone": "+91-XXXXXXXXXX or N/A",
     "email": "email@example.com or N/A"
   }
@@ -354,6 +328,7 @@ Return ONLY a valid JSON array:
 Requirements:
 - Return ONLY valid JSON, no markdown or explanations
 - All businesses must be real and from ${location}
+- Include complete address with area/locality
 - Use "N/A" if phone or email not available
 - Focus on accuracy`;
 
@@ -414,9 +389,10 @@ Requirements:
         const place = places[0]; // Get first match
 
         // Merge Gemini data with Serper data
+        const businessAddress = place?.address || basicBusiness.address || "-";
         const enrichedBusiness = {
           name: basicBusiness.name,
-          address: place?.address || "-",
+          address: businessAddress,
           phone:
             basicBusiness.phone !== "N/A"
               ? basicBusiness.phone
@@ -426,7 +402,7 @@ Requirements:
           rating: place?.rating?.toString() || "-",
           totalRatings: place?.reviews?.toString() || "-",
           ownerName: "-",
-          googleMapsLink: place?.link || "-",
+          googleMapsLink: place?.link || (businessAddress !== "-" ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(basicBusiness.name + " " + businessAddress)}` : "-"),
           instagram: "-",
           facebook: "-",
           description: place?.category || businessType,
@@ -456,16 +432,17 @@ Requirements:
         );
 
         // Send basic info if Serper fails
+        const fallbackAddress = basicBusiness.address || "-";
         const fallbackBusiness = {
           name: basicBusiness.name,
-          address: "-",
+          address: fallbackAddress,
           phone: basicBusiness.phone || "-",
           email: basicBusiness.email || "-",
           website: "-",
           rating: "-",
           totalRatings: "-",
           ownerName: "-",
-          googleMapsLink: "-",
+          googleMapsLink: fallbackAddress !== "-" ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(basicBusiness.name + " " + fallbackAddress)}` : "-",
           instagram: "-",
           facebook: "-",
           description: businessType,
