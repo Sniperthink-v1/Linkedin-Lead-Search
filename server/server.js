@@ -67,13 +67,23 @@ app.get("/api/leads", async (req, res) => {
     });
 
     const industryText = industry ? ` in ${industry} industry` : "";
-    const geminiPrompt = `Find 15 real LinkedIn profiles for "${businessType}"${industryText} in "${location}". 
+    const geminiPrompt = `Find 100 high-quality LinkedIn profiles for "${businessType}"${industryText} in "${location}". 
 
-For each profile, provide ONLY:
-1. Person's full name
-2. Their current job role/title
+CRITICAL REQUIREMENTS:
+1. Return profiles sorted by quality: HIGHEST quality first, LOWEST quality last
+2. Quality criteria (in priority order):
+   - Senior positions (C-level, VP, Director, Head of) = Highest priority
+   - Current employees at well-known companies
+   - Active professionals with verifiable LinkedIn presence
+   - Complete profile information available
+   - Mid-level positions (Manager, Lead, Senior)
+   - Entry-level positions = Lowest priority
 
-Return ONLY a valid JSON array:
+For each profile, provide:
+1. Person's full name (must be real and verifiable)
+2. Their current job role/title (exact title from LinkedIn)
+
+Return ONLY a valid JSON array with 100 profiles:
 [
   {
     "name": "Full Name",
@@ -81,11 +91,14 @@ Return ONLY a valid JSON array:
   }
 ]
 
+SORTING INSTRUCTION: Array MUST be sorted from HIGHEST to LOWEST quality based on seniority and profile completeness.
+
 Requirements:
 - Return ONLY valid JSON, no markdown or explanations
-- All profiles must be real professionals from ${location}
-- Focus on accuracy
-- Include diverse profiles`;
+- All 100 profiles must be real professionals from ${location}
+- Prioritize decision-makers and senior professionals
+- Include variety of companies (both large and startups)
+- Ensure accurate, verifiable information only`;
 
     sendUpdate({
       type: "progress",
@@ -214,7 +227,9 @@ Requirements:
 
           console.log(`✅ Enriched lead ${i + 1}/${basicProfiles.length}`);
         } else {
-          console.log(`❌ No Serper results for ${basicProfile.name}, skipping...`);
+          console.log(
+            `❌ No Serper results for ${basicProfile.name}, skipping...`
+          );
           // Skip profiles without LinkedIn links - non-negotiable requirement
           continue;
         }
@@ -307,15 +322,23 @@ app.get("/api/business-leads", async (req, res) => {
       model: "gemini-2.5-flash",
     });
 
-    const geminiPrompt = `Find 15 real businesses for "${businessType}" in "${location}". 
+    const geminiPrompt = `Find 50 high-quality businesses for "${businessType}" in "${location}". 
 
-For each business, provide ONLY these 4 essential details:
-1. Business name
-2. Complete address with area name
+CRITICAL REQUIREMENTS:
+1. Return businesses sorted by quality: HIGHEST to LOWEST
+2. Quality criteria (priority order):
+   - Established businesses with good reputation
+   - Complete contact information available
+   - Active operations with verifiable presence
+   - Professional establishments (exclude home-based unless high quality)
+
+For each business, provide these 4 essential details:
+1. Business name (exact legal or trade name)
+2. Complete address with area/locality name
 3. Contact phone number (with country code if available)
-4. Email address
+4. Email address (if publicly available)
 
-Return ONLY a valid JSON array:
+Return ONLY a valid JSON array with 50 businesses:
 [
   {
     "name": "Business Name",
@@ -325,12 +348,15 @@ Return ONLY a valid JSON array:
   }
 ]
 
+SORTING INSTRUCTION: Array MUST be sorted from HIGHEST to LOWEST quality based on reputation and completeness.
+
 Requirements:
 - Return ONLY valid JSON, no markdown or explanations
-- All businesses must be real and from ${location}
-- Include complete address with area/locality
+- All 50 businesses must be real and from ${location}
+- Include complete address with area/locality for accurate Maps links
 - Use "N/A" if phone or email not available
-- Focus on accuracy`;
+- Prioritize established, reputable businesses
+- Focus on accuracy and verifiable information`;
 
     sendUpdate({
       type: "progress",
@@ -402,7 +428,13 @@ Requirements:
           rating: place?.rating?.toString() || "-",
           totalRatings: place?.reviews?.toString() || "-",
           ownerName: "-",
-          googleMapsLink: place?.link || (businessAddress !== "-" ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(basicBusiness.name + " " + businessAddress)}` : "-"),
+          googleMapsLink:
+            place?.link ||
+            (businessAddress !== "-"
+              ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                  basicBusiness.name + " " + businessAddress
+                )}`
+              : "-"),
           instagram: "-",
           facebook: "-",
           description: place?.category || businessType,
@@ -442,7 +474,12 @@ Requirements:
           rating: "-",
           totalRatings: "-",
           ownerName: "-",
-          googleMapsLink: fallbackAddress !== "-" ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(basicBusiness.name + " " + fallbackAddress)}` : "-",
+          googleMapsLink:
+            fallbackAddress !== "-"
+              ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                  basicBusiness.name + " " + fallbackAddress
+                )}`
+              : "-",
           instagram: "-",
           facebook: "-",
           description: businessType,
