@@ -67,38 +67,39 @@ app.get("/api/leads", async (req, res) => {
     });
 
     const industryText = industry ? ` in ${industry} industry` : "";
-    const geminiPrompt = `Find 100 high-quality LinkedIn profiles for "${businessType}"${industryText} in "${location}". 
+    const geminiPrompt = `Find 100 high-quality LinkedIn profiles for EXACTLY "${businessType}"${industryText} in "${location}". 
 
-CRITICAL REQUIREMENTS:
-1. Return profiles sorted by quality: HIGHEST quality first, LOWEST quality last
-2. Quality criteria (in priority order):
-   - Senior positions (C-level, VP, Director, Head of) = Highest priority
-   - Current employees at well-known companies
-   - Active professionals with verifiable LinkedIn presence
-   - Complete profile information available
-   - Mid-level positions (Manager, Lead, Senior)
-   - Entry-level positions = Lowest priority
+CRITICAL ROLE REQUIREMENT:
+- ONLY include profiles whose current job title is directly related to "${businessType}"
+- Job title MUST contain keywords from "${businessType}" or be a clear match
+- Example: If searching "Digital Marketing", ONLY include roles like "Digital Marketing Manager", "Head of Digital Marketing", "Digital Marketing Specialist", etc.
+- EXCLUDE profiles with unrelated job titles (e.g., if searching "Marketing Manager", exclude "Sales Manager", "HR Manager", etc.)
+
+QUALITY SORTING (HIGHEST to LOWEST):
+1. Senior positions (C-level, VP, Director, Head of) in "${businessType}" role
+2. Mid-level positions (Manager, Lead, Senior) in "${businessType}" role
+3. Entry-level positions in "${businessType}" role
+4. Current employees at well-known companies
+5. Active professionals with verifiable LinkedIn presence
 
 For each profile, provide:
 1. Person's full name (must be real and verifiable)
-2. Their current job role/title (exact title from LinkedIn)
+2. Their current job role/title (MUST match "${businessType}")
 
 Return ONLY a valid JSON array with 100 profiles:
 [
   {
     "name": "Full Name",
-    "role": "Job Title/Role"
+    "role": "Job Title matching ${businessType}"
   }
 ]
 
-SORTING INSTRUCTION: Array MUST be sorted from HIGHEST to LOWEST quality based on seniority and profile completeness.
-
-Requirements:
+STRICT REQUIREMENTS:
 - Return ONLY valid JSON, no markdown or explanations
-- All 100 profiles must be real professionals from ${location}
-- Prioritize decision-makers and senior professionals
-- Include variety of companies (both large and startups)
-- Ensure accurate, verifiable information only`;
+- All 100 profiles must be from ${location}
+- Every role MUST be relevant to "${businessType}" - NO exceptions
+- Sort by seniority within the "${businessType}" field
+- Verify job title relevance before including`;
 
     sendUpdate({
       type: "progress",
@@ -125,15 +126,36 @@ Requirements:
     const basicProfiles = JSON.parse(geminiText);
     console.log(`Parsed ${basicProfiles.length} profiles from Gemini`);
 
+    // Filter profiles to ensure role relevance
+    const filteredProfiles = basicProfiles.filter((profile) => {
+      const role = profile.role.toLowerCase();
+      const searchTerms = businessType.toLowerCase().split(/[\s,/]+/);
+
+      // Check if role contains any of the search terms
+      const isRelevant = searchTerms.some(
+        (term) => term.length > 2 && role.includes(term)
+      );
+
+      if (!isRelevant) {
+        console.log(
+          `⚠️ Filtered out irrelevant role: ${profile.name} - ${profile.role}`
+        );
+      }
+
+      return isRelevant;
+    });
+
+    console.log(`Filtered to ${filteredProfiles.length} relevant profiles`);
+
     // Step 2: Enrich each profile with Serper API
     console.log("\n[Step 2] Enriching with Serper API...");
 
     const enrichedLeads = [];
 
-    for (let i = 0; i < basicProfiles.length; i++) {
-      const basicProfile = basicProfiles[i];
+    for (let i = 0; i < filteredProfiles.length; i++) {
+      const basicProfile = filteredProfiles[i];
       console.log(
-        `\nProcessing ${i + 1}/${basicProfiles.length}: ${basicProfile.name}`
+        `\nProcessing ${i + 1}/${filteredProfiles.length}: ${basicProfile.name}`
       );
 
       try {
