@@ -466,7 +466,9 @@ function App() {
                     >
                       <td className="px-6 py-4">
                         <div>
-                          <div className="text-white font-medium">{lead.name}</div>
+                          <div className="text-white font-medium">
+                            {lead.name}
+                          </div>
                           <div className="text-gray-400 text-xs mt-1 max-w-xs truncate">
                             {lead.address || "-"}
                           </div>
@@ -511,7 +513,14 @@ function App() {
                         <div className="flex gap-2">
                           {lead.instagram && lead.instagram !== "-" && (
                             <a
-                              href={lead.instagram.startsWith('http') ? lead.instagram : `https://instagram.com/${lead.instagram.replace('@', '')}`}
+                              href={
+                                lead.instagram.startsWith("http")
+                                  ? lead.instagram
+                                  : `https://instagram.com/${lead.instagram.replace(
+                                      "@",
+                                      ""
+                                    )}`
+                              }
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-pink-400 hover:text-pink-300 transition-colors"
@@ -531,10 +540,10 @@ function App() {
                               👥
                             </a>
                           )}
-                          {(!lead.instagram || lead.instagram === "-") && 
-                           (!lead.facebook || lead.facebook === "-") && (
-                            <span className="text-gray-400">-</span>
-                          )}
+                          {(!lead.instagram || lead.instagram === "-") &&
+                            (!lead.facebook || lead.facebook === "-") && (
+                              <span className="text-gray-400">-</span>
+                            )}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-gray-400">

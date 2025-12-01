@@ -32,7 +32,7 @@ Since your backend is in the `server` folder:
 
    - **Key**: `SERPER_API_KEY`
    - **Value**: Your Serper API key from https://serper.dev/
-   
+
    - **Key**: `GEMINI_API_KEY`
    - **Value**: Your Gemini API key from https://aistudio.google.com/app/apikey
 

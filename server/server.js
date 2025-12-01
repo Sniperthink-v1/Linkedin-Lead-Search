@@ -434,7 +434,7 @@ Return ONLY the JSON array, nothing else.`;
 
     // Extract JSON from response (handle markdown code blocks)
     let jsonText = text.trim();
-    
+
     // Remove markdown code blocks if present
     if (jsonText.startsWith("```json")) {
       jsonText = jsonText.replace(/^```json\n/, "").replace(/\n```$/, "");
@@ -487,11 +487,12 @@ Return ONLY the JSON array, nothing else.`;
     res.end();
   } catch (error) {
     console.error("Error fetching business leads:", error.message);
-    
+
     // Provide more specific error messages
     let errorMessage = "Failed to fetch business leads";
     if (error.message.includes("API key")) {
-      errorMessage = "Gemini API key not configured. Please add GEMINI_API_KEY to environment variables.";
+      errorMessage =
+        "Gemini API key not configured. Please add GEMINI_API_KEY to environment variables.";
     } else if (error.message.includes("JSON")) {
       errorMessage = "Failed to parse Gemini response. Please try again.";
     }

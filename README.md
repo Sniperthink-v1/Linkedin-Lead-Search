@@ -22,7 +22,7 @@ A powerful lead generation tool that searches for LinkedIn profiles and local bu
 
 - **Frontend**: React 18 + Vite + Tailwind CSS (Deployed on Vercel)
 - **Backend**: Node.js + Express (Deployed on Railway)
-- **APIs**: 
+- **APIs**:
   - Serper API (LinkedIn people search via Google Web Search)
   - Gemini AI API (Business search with enriched data)
 - **Data Export**: XLSX library
@@ -81,6 +81,7 @@ VITE_API_URL=http://localhost:3000
 ```
 
 Get your API keys:
+
 - Serper API: https://serper.dev/ (for LinkedIn people search)
 - Gemini API: https://aistudio.google.com/app/apikey (for business search)
 
