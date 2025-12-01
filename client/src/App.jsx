@@ -47,9 +47,15 @@ function App() {
         "Business Name": lead.name,
         Address: lead.address || "-",
         Phone: lead.phone || "-",
+        Email: lead.email || "-",
         Website: lead.website || "-",
+        Owner: lead.ownerName || "-",
         Rating: lead.rating || "-",
         "Total Ratings": lead.totalRatings || "-",
+        Instagram: lead.instagram || "-",
+        Facebook: lead.facebook || "-",
+        Description: lead.description || "-",
+        Category: lead.category || "-",
         "Google Maps Link": lead.googleMapsLink,
       }));
       sheetName = "Business Leads";
@@ -433,13 +439,16 @@ function App() {
                       Business Name
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
-                      Address
+                      Contact
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
-                      Phone
+                      Owner
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                       Website
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                      Social Media
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                       Rating
@@ -455,14 +464,33 @@ function App() {
                       key={index}
                       className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors"
                     >
-                      <td className="px-6 py-4 text-white font-medium">
-                        {lead.name}
+                      <td className="px-6 py-4">
+                        <div>
+                          <div className="text-white font-medium">{lead.name}</div>
+                          <div className="text-gray-400 text-xs mt-1 max-w-xs truncate">
+                            {lead.address || "-"}
+                          </div>
+                          {lead.category && lead.category !== "-" && (
+                            <div className="text-gray-500 text-xs mt-1">
+                              {lead.category}
+                            </div>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-6 py-4 text-gray-400 max-w-xs truncate">
-                        {lead.address || "-"}
+                      <td className="px-6 py-4">
+                        <div className="space-y-1">
+                          <div className="text-gray-400 text-sm">
+                            📞 {lead.phone || "-"}
+                          </div>
+                          {lead.email && lead.email !== "-" && (
+                            <div className="text-gray-400 text-sm">
+                              ✉️ {lead.email}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-gray-400">
-                        {lead.phone || "-"}
+                        {lead.ownerName || "-"}
                       </td>
                       <td className="px-6 py-4">
                         {lead.website && lead.website !== "-" ? (
@@ -478,6 +506,36 @@ function App() {
                         ) : (
                           <span className="text-gray-400">-</span>
                         )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex gap-2">
+                          {lead.instagram && lead.instagram !== "-" && (
+                            <a
+                              href={lead.instagram.startsWith('http') ? lead.instagram : `https://instagram.com/${lead.instagram.replace('@', '')}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-pink-400 hover:text-pink-300 transition-colors"
+                              title="Instagram"
+                            >
+                              📷
+                            </a>
+                          )}
+                          {lead.facebook && lead.facebook !== "-" && (
+                            <a
+                              href={lead.facebook}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-400 hover:text-blue-300 transition-colors"
+                              title="Facebook"
+                            >
+                              👥
+                            </a>
+                          )}
+                          {(!lead.instagram || lead.instagram === "-") && 
+                           (!lead.facebook || lead.facebook === "-") && (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-gray-400">
                         {lead.rating !== "-" ? (

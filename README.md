@@ -22,7 +22,9 @@ A powerful lead generation tool that searches for LinkedIn profiles and local bu
 
 - **Frontend**: React 18 + Vite + Tailwind CSS (Deployed on Vercel)
 - **Backend**: Node.js + Express (Deployed on Railway)
-- **API**: Serper API (Web Search + Maps)
+- **APIs**: 
+  - Serper API (LinkedIn people search via Google Web Search)
+  - Gemini AI API (Business search with enriched data)
 - **Data Export**: XLSX library
 
 ## 🚀 Deployment
@@ -68,6 +70,7 @@ npm install
 
 ```env
 SERPER_API_KEY=your_serper_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
 PORT=3000
 ```
 
@@ -77,7 +80,9 @@ PORT=3000
 VITE_API_URL=http://localhost:3000
 ```
 
-Get your free API key at: https://serper.dev/
+Get your API keys:
+- Serper API: https://serper.dev/ (for LinkedIn people search)
+- Gemini API: https://aistudio.google.com/app/apikey (for business search)
 
 ### Running the Application (Local Development)
 
@@ -111,10 +116,16 @@ npm run dev
 ### Business Search
 
 1. Select "Business Leads" tab
-2. Enter business type (e.g., "Restaurant", "Digital Marketing")
-3. Enter location (e.g., "Noida")
+2. Enter business type (e.g., "Restaurant", "Digital Marketing Agency", "Auto Dealer")
+3. Enter location (e.g., "Noida", "Mumbai", "Delhi")
 4. Click "Search Leads"
-5. Export results to Excel
+5. View enriched results with:
+   - Contact details (phone, email)
+   - Owner/founder names
+   - Social media profiles (Instagram, Facebook)
+   - Business descriptions
+   - Ratings and reviews
+6. Export complete data to Excel
 
 ## API Endpoints
 
@@ -129,9 +140,19 @@ npm run dev
 ### Business Search
 
 - **Endpoint**: `GET /api/business-leads`
+- **Technology**: Gemini AI with Google Search grounding
 - **Query Parameters**:
   - `businessType` (required): Type of business
   - `location` (required): City/location
+- **Enriched Data Returned**:
+  - Business name and address
+  - Phone number and email
+  - Owner/founder name
+  - Website URL
+  - Google Maps rating and review count
+  - Instagram and Facebook profiles
+  - Business description and category
+  - Direct Google Maps link
 
 ## Features in Detail
 
@@ -144,10 +165,11 @@ npm run dev
 
 ### Rate Limiting
 
-- 1 second delay between requests (Serper free tier compliance)
-- Automatic handling of 429 (rate limit) responses
+- **LinkedIn Search**: 1 second delay between requests (Serper free tier compliance)
+- **Business Search**: Single Gemini AI request (no rate limiting needed)
+- Automatic handling of API responses
 - Up to 10 pages (100 results) for LinkedIn search
-- Up to 20 results for business search
+- Up to 20 enriched results for business search
 
 ### Export Features
 

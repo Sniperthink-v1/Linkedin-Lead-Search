@@ -28,10 +28,13 @@ Since your backend is in the `server` folder:
 ### 3. Add Environment Variables
 
 1. Go to **Variables** tab in your Railway project
-2. Add the following environment variable:
+2. Add the following environment variables:
 
    - **Key**: `SERPER_API_KEY`
    - **Value**: Your Serper API key from https://serper.dev/
+   
+   - **Key**: `GEMINI_API_KEY`
+   - **Value**: Your Gemini API key from https://aistudio.google.com/app/apikey
 
 3. Railway automatically sets the `PORT` variable, so you don't need to add it
 

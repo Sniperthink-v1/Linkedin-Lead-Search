@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 require("dotenv").config();
 
 const app = express();
@@ -10,6 +11,7 @@ app.use(cors());
 app.use(express.json());
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // Basic health check
 app.get("/", (req, res) => {
@@ -330,7 +332,7 @@ app.get("/api/leads", async (req, res) => {
   }
 });
 
-// Business Search Endpoint
+// Business Search Endpoint (Gemini AI)
 app.get("/api/business-leads", async (req, res) => {
   const { businessType, location } = req.query;
 
@@ -340,162 +342,164 @@ app.get("/api/business-leads", async (req, res) => {
       .json({ error: "Business Type and Location are required" });
   }
 
-  console.log("\n=== Business Search (Serper Maps API) ===");
+  console.log("\n=== Business Search (Gemini AI) ===");
   console.log("Business Type:", businessType);
   console.log("Location:", location);
 
+  // Set headers for Server-Sent Events (SSE)
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  // Helper function to send progressive updates
+  const sendUpdate = (data) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
   try {
-    const allBusinesses = [];
-
-    // Set headers for Server-Sent Events (SSE)
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-
-    // Helper function to send progressive updates
-    const sendUpdate = (data) => {
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
-    };
-
-    console.log("\nFetching businesses from Google Maps...");
-
-    try {
-      // Use Serper's Google Maps search endpoint
-      const response = await axios.post(
-        "https://google.serper.dev/maps",
-        {
-          q: `${businessType} in ${location}`,
-          limit: 20, // Maximum results
-        },
-        {
-          headers: {
-            "X-API-KEY": SERPER_API_KEY,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      const places = response.data.places || [];
-      console.log(`Found ${places.length} businesses from Google Maps`);
-
-      if (places.length === 0) {
-        console.log("No businesses found.");
-      }
-
-      // Keywords to filter out educational institutions
-      const excludeKeywords = [
-        "college",
-        "university",
-        "school",
-        "institute",
-        "academy",
-        "education",
-        "campus",
-        "iit",
-        "nit",
-        "iim",
-        "polytechnic",
-        "vidyalaya",
-        "vidyapeeth",
-        "vishwavidyalaya",
-        "medical college",
-      ];
-
-      // Process each place
-      for (const place of places) {
-        try {
-          // Filter out educational institutions
-          const title = place.title?.toLowerCase() || "";
-          const category = place.category?.toLowerCase() || "";
-          const type = place.type?.toLowerCase() || "";
-
-          const isEducational = excludeKeywords.some(
-            (keyword) =>
-              title.includes(keyword) ||
-              category.includes(keyword) ||
-              type.includes(keyword)
-          );
-
-          if (isEducational) {
-            console.log(`  ⚠️  Skipped (Educational): ${place.title}`);
-            continue;
-          }
-
-          // Extract business information
-          const business = {
-            name: place.title || "Unknown",
-            address: place.address || "-",
-            phone: place.phoneNumber || place.phone || "-",
-            website: place.website || "-",
-            rating: place.rating || "-",
-            totalRatings: place.ratingCount || "-",
-            businessStatus: "OPERATIONAL",
-            location: location,
-            placeId: place.placeId || "",
-            googleMapsLink: place.cid
-              ? `https://www.google.com/maps?cid=${place.cid}`
-              : place.link ||
-                `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                  place.title + " " + place.address
-                )}`,
-            category: place.category || place.type || "-",
-            hours: place.hours || "-",
-          };
-
-          allBusinesses.push(business);
-          console.log(`  ✅ Added: ${business.name}`);
-        } catch (detailError) {
-          console.error(`  ❌ Error processing place:`, detailError.message);
-        }
-      }
-
-      // Send progressive update
-      if (allBusinesses.length > 0) {
-        sendUpdate({
-          type: "progress",
-          leads: allBusinesses,
-          total: allBusinesses.length,
-          page: 1,
-        });
-      }
-    } catch (apiError) {
-      console.error("Error fetching from Maps API:", apiError.message);
-      if (apiError.response) {
-        console.error("Response status:", apiError.response.status);
-        console.error(
-          "Response data:",
-          JSON.stringify(apiError.response.data, null, 2)
-        );
-      }
-
-      // If API key is invalid (401), report it
-      if (apiError.response?.status === 401) {
-        console.error("Invalid API key. Please check SERPER_API_KEY in .env");
-      }
-
-      // If rate limited (429), report it
-      if (apiError.response?.status === 429) {
-        console.error("Rate limited. Please wait before trying again.");
-      }
+    if (!GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY not configured in environment variables");
     }
 
-    console.log("\n=== Search Complete ===");
-    console.log(`Total businesses found: ${allBusinesses.length}`);
+    console.log("\nQuerying Gemini AI for business leads...");
+
+    // Initialize Gemini AI
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getModel({
+      model: "gemini-2.0-flash-exp",
+    });
+
+    // Craft detailed prompt for business search
+    const prompt = `Search Google Maps and find exactly 20 ${businessType} businesses located in ${location}, India.
+
+For each business, extract the following information:
+- Business name (required)
+- Full street address (required)
+- Primary phone number (required, format: +91-XXXXXXXXXX)
+- Email address (if publicly available on website or Google listing)
+- Official website URL (if available)
+- Google Maps rating (out of 5)
+- Total number of reviews/ratings
+- Owner or founder name (if available on website or About page)
+- Direct Google Maps link
+- Instagram handle or URL (if available)
+- Facebook page URL (if available)
+- Brief 1-sentence business description
+- Business category or type
+
+Important instructions:
+1. Focus ONLY on active, operational businesses
+2. Exclude educational institutions (colleges, schools, universities, institutes)
+3. Provide real, verifiable data - no placeholders or made-up information
+4. If a field is not available, use "-" or null
+5. Ensure all phone numbers include country code (+91)
+6. Return ONLY a valid JSON array with no additional text or explanations
+
+Return format (JSON array):
+[
+  {
+    "name": "Business Name",
+    "address": "Full Address with pincode",
+    "phone": "+91-XXXXXXXXXX",
+    "email": "contact@business.com",
+    "website": "https://website.com",
+    "rating": "4.5",
+    "totalRatings": "1234",
+    "ownerName": "Owner Name",
+    "googleMapsLink": "https://maps.google.com/...",
+    "instagram": "@businessname or https://instagram.com/...",
+    "facebook": "https://facebook.com/...",
+    "description": "Brief description of business",
+    "category": "Business category"
+  }
+]
+
+Return ONLY the JSON array, nothing else.`;
+
+    // Send initial progress update
+    sendUpdate({
+      type: "progress",
+      leads: [],
+      total: 0,
+      page: 0,
+      message: "Searching with Gemini AI...",
+    });
+
+    // Generate content with Gemini
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const text = response.text();
+
+    console.log("\nGemini Response received, parsing JSON...");
+
+    // Extract JSON from response (handle markdown code blocks)
+    let jsonText = text.trim();
+    
+    // Remove markdown code blocks if present
+    if (jsonText.startsWith("```json")) {
+      jsonText = jsonText.replace(/^```json\n/, "").replace(/\n```$/, "");
+    } else if (jsonText.startsWith("```")) {
+      jsonText = jsonText.replace(/^```\n/, "").replace(/\n```$/, "");
+    }
+
+    // Parse the JSON
+    const businesses = JSON.parse(jsonText);
+
+    console.log(`\nSuccessfully parsed ${businesses.length} businesses`);
+
+    // Validate and clean data
+    const validBusinesses = businesses
+      .filter((business) => {
+        // Must have at least name and address
+        return business.name && business.address;
+      })
+      .map((business) => ({
+        name: business.name || "Unknown",
+        address: business.address || "-",
+        phone: business.phone || "-",
+        email: business.email || "-",
+        website: business.website || "-",
+        rating: business.rating || "-",
+        totalRatings: business.totalRatings || "-",
+        ownerName: business.ownerName || "-",
+        googleMapsLink:
+          business.googleMapsLink ||
+          `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+            business.name + " " + business.address
+          )}`,
+        instagram: business.instagram || "-",
+        facebook: business.facebook || "-",
+        description: business.description || "-",
+        category: business.category || businessType,
+        location: location,
+      }));
+
+    console.log(`\n=== Search Complete ===`);
+    console.log(`Total valid businesses: ${validBusinesses.length}`);
 
     // Send final complete results
     sendUpdate({
       type: "complete",
-      leads: allBusinesses,
-      total: allBusinesses.length,
+      leads: validBusinesses,
+      total: validBusinesses.length,
     });
 
     res.end();
   } catch (error) {
     console.error("Error fetching business leads:", error.message);
+    
+    // Provide more specific error messages
+    let errorMessage = "Failed to fetch business leads";
+    if (error.message.includes("API key")) {
+      errorMessage = "Gemini API key not configured. Please add GEMINI_API_KEY to environment variables.";
+    } else if (error.message.includes("JSON")) {
+      errorMessage = "Failed to parse Gemini response. Please try again.";
+    }
+
     res.write(
       `data: ${JSON.stringify({
         type: "error",
-        error: "Failed to fetch business leads",
+        error: errorMessage,
         details: error.message,
       })}\n\n`
     );
@@ -506,4 +510,5 @@ app.get("/api/business-leads", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Serper API Key configured: ${SERPER_API_KEY ? "Yes" : "No"}`);
+  console.log(`Gemini API Key configured: ${GEMINI_API_KEY ? "Yes" : "No"}`);
 });
