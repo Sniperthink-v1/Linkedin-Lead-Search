@@ -197,9 +197,18 @@ STRICT REQUIREMENTS:
         if (results.length > 0) {
           const result = results[0];
 
+          // Extract job title from LinkedIn title
+          let extractedJobTitle = "";
+          const titleParts = result.title.split(/\s*[-–]\s*/);
+          if (titleParts.length >= 2) {
+            extractedJobTitle = titleParts[1]
+              .replace(/\s*\|\s*LinkedIn.*$/i, "")
+              .replace(/\s+at\s+.*$/i, "")
+              .trim();
+          }
+
           // Extract company from title
           let company = "";
-          const titleParts = result.title.split(/\s*[-–]\s*/);
           if (titleParts.length >= 3) {
             company = titleParts[2].replace(/\s*\|\s*LinkedIn.*$/i, "").trim();
           }
@@ -223,9 +232,47 @@ STRICT REQUIREMENTS:
             }
           }
 
+          // VALIDATION: Cross-check job title and location
+          const searchTerms = businessType.toLowerCase().split(/[\s,/]+/);
+          const titleToCheck = extractedJobTitle.toLowerCase();
+          const locationToCheck = personLocation.toLowerCase();
+          const requestedLocation = location.toLowerCase();
+
+          // Check if extracted job title matches search terms
+          const titleMatches = searchTerms.some(
+            (term) => term.length > 2 && titleToCheck.includes(term)
+          );
+
+          // Check if location matches (flexible matching)
+          const locationWords = requestedLocation.split(/[\s,]+/);
+          const locationMatches =
+            !personLocation ||
+            locationWords.some((word) => locationToCheck.includes(word)) ||
+            locationToCheck.includes(requestedLocation);
+
+          if (!titleMatches) {
+            console.log(
+              `⚠️ REJECTED: Job title mismatch - "${extractedJobTitle}" doesn't match "${businessType}" for ${basicProfile.name}`
+            );
+            continue; // Skip this profile
+          }
+
+          if (!locationMatches && personLocation) {
+            console.log(
+              `⚠️ REJECTED: Location mismatch - "${personLocation}" doesn't match "${location}" for ${basicProfile.name}`
+            );
+            continue; // Skip this profile
+          }
+
+          console.log(
+            `✅ VALIDATED: ${basicProfile.name} - ${extractedJobTitle} in ${
+              personLocation || location
+            }`
+          );
+
           const enrichedLead = {
             personName: basicProfile.name,
-            jobTitle: basicProfile.role,
+            jobTitle: extractedJobTitle || basicProfile.role,
             company: company || "",
             location: personLocation || location,
             profileLink: result.link,
