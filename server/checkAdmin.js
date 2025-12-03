@@ -42,10 +42,7 @@ async function checkAdminCredentials() {
     const isPasswordValid = await comparePassword(password, admin.password);
 
     console.log("\n🔐 Password verification:");
-    console.log(
-      "Test Password:",
-      password
-    );
+    console.log("Test Password:", password);
     console.log("Password Valid:", isPasswordValid ? "✅ YES" : "❌ NO");
 
     if (isPasswordValid) {

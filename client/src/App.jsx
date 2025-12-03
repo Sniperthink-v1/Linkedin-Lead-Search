@@ -195,12 +195,6 @@ function App() {
   };
 
   const handleSearch = async (formData) => {
-    // Require authentication
-    if (!isAuthenticated) {
-      setShowAuthModal(true);
-      return;
-    }
-
     setLoading(true);
     setError(null);
     setSearched(true);
@@ -242,12 +236,6 @@ function App() {
   };
 
   const handleBusinessSearch = async (formData) => {
-    // Require authentication
-    if (!isAuthenticated) {
-      setShowAuthModal(true);
-      return;
-    }
-
     setLoading(true);
     setError(null);
     setSearched(true);
@@ -387,40 +375,14 @@ function App() {
           </button>
         </div>
 
-        {/* Login Prompt for Unauthenticated Users */}
-        {!isAuthenticated && (
-          <div className="bg-dark border border-gray-700 rounded-xl p-8 text-center">
-            <div className="inline-flex items-center justify-center p-3 bg-primary/10 rounded-full mb-4">
-              <LogIn className="w-8 h-8 text-primary" />
-            </div>
-            <h3 className="text-2xl font-bold text-white mb-2">
-              Sign in to Start Searching
-            </h3>
-            <p className="text-gray-400 mb-6">
-              Please log in or create an account to access the lead search tool.
-            </p>
-            <button
-              onClick={() => setShowAuthModal(true)}
-              className="inline-flex items-center gap-2 bg-primary hover:bg-blue-600 rounded-lg px-6 py-3 text-white font-semibold transition-all"
-            >
-              <UserPlus className="w-5 h-5" />
-              Get Started
-            </button>
-          </div>
-        )}
-
-        {/* Search Section - Only show when authenticated */}
-        {isAuthenticated && (
-          <>
-            {activeTab === "people" ? (
-              <SearchForm onSearch={handleSearch} isLoading={loading} />
-            ) : (
-              <BusinessSearchForm
-                onSearch={handleBusinessSearch}
-                isLoading={loading}
-              />
-            )}
-          </>
+        {/* Search Section */}
+        {activeTab === "people" ? (
+          <SearchForm onSearch={handleSearch} isLoading={loading} />
+        ) : (
+          <BusinessSearchForm
+            onSearch={handleBusinessSearch}
+            isLoading={loading}
+          />
         )}
 
         {/* Results Section */}
