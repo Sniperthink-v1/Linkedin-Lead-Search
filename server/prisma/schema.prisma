@@ -1,0 +1,100 @@
+// Prisma schema for LinkedIn Lead Search with Authentication
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User authentication and profile
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  password          String?   // Nullable for OAuth users
+  name              String
+  emailVerified     Boolean   @default(false)
+  verificationToken String?   @unique
+  resetToken        String?   @unique
+  resetTokenExpiry  DateTime?
+  accountStatus     String    @default("active") // active, suspended, deleted
+  provider          String    @default("email") // email, google, linkedin
+  providerId        String?   // OAuth provider user ID
+  createdAt         DateTime  @default(now())
+  lastLogin         DateTime?
+  
+  // Relations
+  searches          Search[]
+  savedLeads        SavedLead[]
+  
+  @@index([email])
+}
+
+// Search history - track every search
+model Search {
+  id           String   @id @default(uuid())
+  userId       String
+  searchType   String   // "linkedin" or "business"
+  businessType String?  // Job title or business category
+  location     String?
+  industry     String?
+  query        String?  // Natural language query from quick search
+  resultCount  Int      @default(0)
+  createdAt    DateTime @default(now())
+  
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leads        SavedLead[]
+  
+  @@index([userId, createdAt])
+}
+
+// Saved leads - individual LinkedIn profiles or businesses
+model SavedLead {
+  id            String   @id @default(uuid())
+  userId        String
+  searchId      String
+  leadType      String   // "linkedin" or "business"
+  
+  // LinkedIn profile fields
+  personName    String?
+  jobTitle      String?
+  company       String?
+  location      String?
+  profileLink   String?
+  snippet       String?
+  
+  // Business fields
+  businessName  String?
+  address       String?
+  phone         String?
+  email         String?
+  website       String?
+  rating        Float?
+  totalRatings  String?
+  lastReview    String?
+  googleMapsLink String?
+  
+  // Metadata
+  savedAt       DateTime @default(now())
+  exported      Boolean  @default(false)
+  
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  search        Search   @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  
+  @@index([userId, leadType])
+  @@index([searchId])
+}
+
+// OAuth sessions (optional, for future use)
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  @@index([userId])
+  @@index([token])
+}

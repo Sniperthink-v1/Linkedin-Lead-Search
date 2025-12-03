@@ -2,16 +2,27 @@ const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const cookieParser = require("cookie-parser");
 require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(
+  cors({
+    credentials: true,
+    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+  })
+);
 app.use(express.json());
+app.use(cookieParser());
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+// Import auth routes
+const authRoutes = require("./routes/auth");
+app.use("/api/auth", authRoutes);
 
 // Basic health check
 app.get("/", (req, res) => {
@@ -19,6 +30,10 @@ app.get("/", (req, res) => {
     status: "running",
     message: "LinkedIn Lead Search API (Hybrid: Gemini + Serper)",
     endpoints: [
+      "POST /api/auth/signup - Register new user",
+      "POST /api/auth/login - Login user",
+      "GET /api/auth/verify-email - Verify email",
+      "GET /api/auth/me - Get current user",
       "GET /api/leads - LinkedIn people search",
       "GET /api/business-leads - Business search",
     ],

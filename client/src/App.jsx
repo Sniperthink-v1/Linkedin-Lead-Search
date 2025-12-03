@@ -1,6 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import SearchForm from "./components/SearchForm";
 import BusinessSearchForm from "./components/BusinessSearchForm";
+import AuthModal from "./components/AuthModal";
+import UserProfile from "./components/UserProfile";
 import {
   Users,
   ExternalLink,
@@ -8,6 +10,8 @@ import {
   Download,
   Building2,
   Copy,
+  LogIn,
+  UserPlus,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -22,6 +26,54 @@ function App() {
   const [searched, setSearched] = useState(false);
   const [totalResults, setTotalResults] = useState(0);
   const [copiedLink, setCopiedLink] = useState(null);
+
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  // Check if user is logged in on mount
+  useEffect(() => {
+    const token = localStorage.getItem("authToken");
+    const storedUser = localStorage.getItem("user");
+
+    if (token && storedUser) {
+      setIsAuthenticated(true);
+      setUser(JSON.parse(storedUser));
+      // Optionally fetch fresh user data
+      fetchUserData(token);
+    }
+  }, []);
+
+  const fetchUserData = async (token) => {
+    try {
+      const response = await fetch(`${API_URL}/api/auth/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (data.success) {
+        setUser(data.user);
+        localStorage.setItem("user", JSON.stringify(data.user));
+      }
+    } catch (error) {
+      console.error("Failed to fetch user data:", error);
+    }
+  };
+
+  const handleLoginSuccess = (userData, token) => {
+    setIsAuthenticated(true);
+    setUser(userData);
+    fetchUserData(token); // Get fresh data with stats
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setUser(null);
+    setLeads([]);
+    setSearched(false);
+  };
 
   const handleCopyLink = (link) => {
     navigator.clipboard.writeText(link);
@@ -143,6 +195,12 @@ function App() {
   };
 
   const handleSearch = async (formData) => {
+    // Require authentication
+    if (!isAuthenticated) {
+      setShowAuthModal(true);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setSearched(true);
@@ -184,6 +242,12 @@ function App() {
   };
 
   const handleBusinessSearch = async (formData) => {
+    // Require authentication
+    if (!isAuthenticated) {
+      setShowAuthModal(true);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setSearched(true);
@@ -229,26 +293,63 @@ function App() {
   return (
     <div className="min-h-screen bg-darker p-6 md:p-12">
       <div className="max-w-7xl mx-auto space-y-12">
-        {/* Header */}
-        <div className="text-center space-y-4">
-          <div className="inline-flex items-center justify-center p-3 bg-primary/10 rounded-full mb-4">
-            {activeTab === "people" ? (
-              <Users className="w-8 h-8 text-primary" />
+        {/* Header with Auth */}
+        <div className="flex justify-between items-start mb-8">
+          <div className="flex-1">
+            <div className="inline-flex items-center justify-center p-3 bg-primary/10 rounded-full mb-4">
+              {activeTab === "people" ? (
+                <Users className="w-8 h-8 text-primary" />
+              ) : (
+                <Building2 className="w-8 h-8 text-primary" />
+              )}
+            </div>
+            <h1 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-500">
+              {activeTab === "people"
+                ? "LinkedIn People Finder"
+                : "Business Lead Finder"}
+            </h1>
+            <p className="text-gray-400 text-lg max-w-2xl mt-2">
+              {activeTab === "people"
+                ? "Find professionals on LinkedIn by job title and location. Enter your search criteria below to discover potential leads."
+                : "Find businesses using Google Places. Enter business type and location to discover local businesses."}
+            </p>
+          </div>
+
+          {/* Auth Section */}
+          <div className="ml-4">
+            {isAuthenticated ? (
+              <UserProfile user={user} onLogout={handleLogout} />
             ) : (
-              <Building2 className="w-8 h-8 text-primary" />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="flex items-center gap-2 bg-dark hover:bg-darker border border-gray-700 hover:border-primary rounded-lg px-4 py-2 text-white transition-all"
+                >
+                  <LogIn className="w-4 h-4" />
+                  Sign In
+                </button>
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="flex items-center gap-2 bg-primary hover:bg-blue-600 rounded-lg px-4 py-2 text-white font-semibold transition-all"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Sign Up
+                </button>
+              </div>
             )}
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-500">
-            {activeTab === "people"
-              ? "LinkedIn People Finder"
-              : "Business Lead Finder"}
-          </h1>
-          <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            {activeTab === "people"
-              ? "Find professionals on LinkedIn by job title and location. Enter your search criteria below to discover potential leads."
-              : "Find businesses using Google Places. Enter business type and location to discover local businesses."}
-          </p>
         </div>
+
+        {/* Email Verification Warning */}
+        {isAuthenticated && !user?.emailVerified && (
+          <div className="bg-yellow-500 bg-opacity-10 border border-yellow-500 text-yellow-500 px-6 py-4 rounded-lg">
+            <p className="font-semibold">⚠️ Email Verification Required</p>
+            <p className="text-sm mt-1">
+              Please verify your email address to unlock all features. Check
+              your inbox for the verification link.
+            </p>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex justify-center gap-4">
@@ -286,14 +387,40 @@ function App() {
           </button>
         </div>
 
-        {/* Search Section */}
-        {activeTab === "people" ? (
-          <SearchForm onSearch={handleSearch} isLoading={loading} />
-        ) : (
-          <BusinessSearchForm
-            onSearch={handleBusinessSearch}
-            isLoading={loading}
-          />
+        {/* Login Prompt for Unauthenticated Users */}
+        {!isAuthenticated && (
+          <div className="bg-dark border border-gray-700 rounded-xl p-8 text-center">
+            <div className="inline-flex items-center justify-center p-3 bg-primary/10 rounded-full mb-4">
+              <LogIn className="w-8 h-8 text-primary" />
+            </div>
+            <h3 className="text-2xl font-bold text-white mb-2">
+              Sign in to Start Searching
+            </h3>
+            <p className="text-gray-400 mb-6">
+              Please log in or create an account to access the lead search tool.
+            </p>
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="inline-flex items-center gap-2 bg-primary hover:bg-blue-600 rounded-lg px-6 py-3 text-white font-semibold transition-all"
+            >
+              <UserPlus className="w-5 h-5" />
+              Get Started
+            </button>
+          </div>
+        )}
+
+        {/* Search Section - Only show when authenticated */}
+        {isAuthenticated && (
+          <>
+            {activeTab === "people" ? (
+              <SearchForm onSearch={handleSearch} isLoading={loading} />
+            ) : (
+              <BusinessSearchForm
+                onSearch={handleBusinessSearch}
+                isLoading={loading}
+              />
+            )}
+          </>
         )}
 
         {/* Results Section */}
@@ -582,6 +709,13 @@ function App() {
           )}
         </div>
       </div>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onLoginSuccess={handleLoginSuccess}
+      />
     </div>
   );
 }
