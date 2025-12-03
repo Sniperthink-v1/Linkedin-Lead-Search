@@ -1,72 +1,76 @@
 # Deployment Configuration
 
-## Backend Deployment (Required First)
+## 🚨 URGENT: Fix CORS Error
 
-Your backend needs to be deployed before the frontend. Deploy to one of these platforms:
+You're getting a CORS error because your Railway backend's `FRONTEND_URL` is set to `http://localhost:5173` but needs to be `https://linkedin-lead-search.vercel.app`.
 
-### Option 1: Railway (Recommended)
-1. Go to [Railway.app](https://railway.app)
-2. Create a new project from your GitHub repository
-3. Select the `server` folder as the root directory
-4. Railway will auto-detect Node.js and deploy
-5. Add environment variables in Railway dashboard:
-   - `DATABASE_URL` (your NeonDB connection string)
-   - `GEMINI_API_KEY`
-   - `SERPER_API_KEY`
-   - `JWT_SECRET` (generate a random string)
-   - `JWT_EXPIRES_IN=10m`
-   - `FRONTEND_URL=https://linkedin-lead-search.vercel.app`
-6. Copy your Railway backend URL (e.g., `https://your-app.up.railway.app`)
+### Quick Fix Steps:
 
-### Option 2: Render
-1. Go to [Render.com](https://render.com)
-2. Create a new Web Service from your GitHub repository
-3. Set root directory to `server`
-4. Build command: `npm install`
-5. Start command: `npm start`
-6. Add environment variables in Render dashboard (same as above)
-7. Copy your Render backend URL
+1. **Go to Railway Dashboard**: https://railway.app
+2. **Select your project**: linkedin-lead-search-production
+3. **Click on your service** (the backend deployment)
+4. **Go to "Variables" tab**
+5. **Update or Add**:
+   ```
+   FRONTEND_URL=https://linkedin-lead-search.vercel.app
+   ```
+6. **Redeploy** (Railway should auto-redeploy after variable change)
+7. **Wait 1-2 minutes** for deployment to complete
+8. **Test login** at https://linkedin-lead-search.vercel.app
+
+---
+
+## Backend Deployment (Railway)
+
+### ✅ Already Deployed
+Your backend is at: `https://linkedin-lead-search-production.up.railway.app`
+
+### Required Environment Variables on Railway:
+```
+DATABASE_URL=postgresql://neondb_owner:npg_oVb7v0JDqFky@ep-frosty-lab-a1ltahz5-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+GEMINI_API_KEY=AIzaSyBIBONjzfYixSHN6nhce4Z31RYiupHHmZY
+SERPER_API_KEY=80b0a047fcfb2f7c1e28d86e8dbccd128eaaa72c
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production-min-32-chars
+JWT_EXPIRES_IN=10m
+FRONTEND_URL=https://linkedin-lead-search.vercel.app   ⚠️ UPDATE THIS!
+PORT=3000
+```
+
+---
 
 ## Frontend Deployment (Vercel)
 
-### Configure Environment Variable on Vercel:
-1. Go to your Vercel project settings
-2. Navigate to "Environment Variables"
-3. Add a new variable:
-   - **Name**: `VITE_API_URL`
-   - **Value**: Your backend URL from Railway/Render (e.g., `https://your-app.up.railway.app`)
-   - **Environment**: Production, Preview, Development (select all)
-4. Redeploy your frontend
+### ✅ Already Deployed
+Your frontend is at: `https://linkedin-lead-search.vercel.app`
 
-### Alternative: Update .env.production locally
-1. Edit `client/.env.production`
-2. Replace `VITE_API_URL=https://your-backend-url-here.com` with your actual backend URL
-3. Commit and push changes
-
-## CORS Configuration
-
-Make sure your backend `.env` has the correct `FRONTEND_URL`:
+### Required Environment Variable on Vercel:
 ```
-FRONTEND_URL=https://linkedin-lead-search.vercel.app
+VITE_API_URL=https://linkedin-lead-search-production.up.railway.app
 ```
 
-## Testing After Deployment
+**To add/update on Vercel:**
+1. Go to: https://vercel.com/dashboard
+2. Select your project
+3. Settings → Environment Variables
+4. Add `VITE_API_URL` with value `https://linkedin-lead-search-production.up.railway.app`
+5. Redeploy (or it will auto-deploy on next push)
 
-1. Open your Vercel URL: https://linkedin-lead-search.vercel.app
-2. Click "Sign In" - should not show CORS errors
-3. Try logging in with: `techsupport@sniperthink.com` / `sniperthinkProduct@LeadGen`
-4. Check browser console for any remaining errors
+---
+
+## Testing After Fix
+
+1. Open: https://linkedin-lead-search.vercel.app
+2. Click "Sign In" 
+3. Login with: `techsupport@sniperthink.com` / `sniperthinkProduct@LeadGen`
+4. Should work without CORS errors! ✅
+
+---
 
 ## Current Status
 
-- ✅ Frontend deployed on Vercel
-- ❌ Backend not deployed yet (causing CORS errors)
-- ❌ VITE_API_URL not configured on Vercel
+- ✅ Frontend deployed on Vercel: https://linkedin-lead-search.vercel.app
+- ✅ Backend deployed on Railway: https://linkedin-lead-search-production.up.railway.app
+- ✅ VITE_API_URL configured (pointing to Railway)
+- ⚠️ **NEEDS FIX**: Railway FRONTEND_URL pointing to localhost instead of Vercel
 
-## Next Steps
-
-1. **Deploy backend first** to Railway or Render
-2. **Copy the backend URL**
-3. **Add VITE_API_URL** to Vercel environment variables with your backend URL
-4. **Redeploy frontend** on Vercel
-5. **Update backend FRONTEND_URL** to match your Vercel domain
+---
