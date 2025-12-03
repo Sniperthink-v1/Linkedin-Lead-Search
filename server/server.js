@@ -493,6 +493,7 @@ REQUIREMENTS:
 1. Sort by quality (HIGHEST to LOWEST): established → good reputation → complete info
 2. Real businesses only from ${location}
 3. Include complete address with area/locality
+4. If available, include the date/time of their most recent review
 
 OUTPUT FORMAT - Return EXACTLY this JSON:
 [
@@ -500,7 +501,8 @@ OUTPUT FORMAT - Return EXACTLY this JSON:
     "name": "Business Name",
     "address": "Complete address with area, ${location}",
     "phone": "+91-XXXXXXXXXX or N/A",
-    "email": "email@example.com or N/A"
+    "email": "email@example.com or N/A",
+    "lastReview": "Recent review date/time (e.g., '2 days ago', '1 week ago', '3 months ago') or N/A"
   }
 ]
 
@@ -628,6 +630,9 @@ CRITICAL: Valid JSON array only. Start with [ and end with ]. No markdown, no te
           category: place?.category || businessType,
           location: location,
           lastReview:
+            (basicBusiness.lastReview && basicBusiness.lastReview !== "N/A"
+              ? basicBusiness.lastReview
+              : null) ||
             place?.lastReview ||
             place?.recentReview ||
             place?.reviewDate ||
