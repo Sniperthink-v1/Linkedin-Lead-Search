@@ -52,6 +52,7 @@ function App() {
         Owner: lead.ownerName || "-",
         Rating: lead.rating || "-",
         "Total Ratings": lead.totalRatings || "-",
+        "Last Review": lead.lastReview || "-",
         Instagram: lead.instagram || "-",
         Facebook: lead.facebook || "-",
         Description: lead.description || "-",
@@ -95,6 +96,7 @@ function App() {
         { wch: 35 }, // Website
         { wch: 10 }, // Rating
         { wch: 15 }, // Total Ratings
+        { wch: 20 }, // Last Review
         { wch: 50 }, // Google Maps Link
       ];
 
@@ -454,6 +456,9 @@ function App() {
                       Rating
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                      Last Review
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                       Google Maps
                     </th>
                   </tr>
@@ -554,6 +559,9 @@ function App() {
                         ) : (
                           "-"
                         )}
+                      </td>
+                      <td className="px-6 py-4 text-gray-400 text-sm">
+                        {lead.lastReview || "-"}
                       </td>
                       <td className="px-6 py-4">
                         <a

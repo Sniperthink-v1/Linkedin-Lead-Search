@@ -67,39 +67,45 @@ app.get("/api/leads", async (req, res) => {
     });
 
     const industryText = industry ? ` in ${industry} industry` : "";
-    const geminiPrompt = `Find 100 high-quality LinkedIn profiles for EXACTLY "${businessType}"${industryText} in "${location}". 
 
-CRITICAL ROLE REQUIREMENT:
-- ONLY include profiles whose current job title is directly related to "${businessType}"
-- Job title MUST contain keywords from "${businessType}" or be a clear match
-- Example: If searching "Digital Marketing", ONLY include roles like "Digital Marketing Manager", "Head of Digital Marketing", "Digital Marketing Specialist", etc.
-- EXCLUDE profiles with unrelated job titles (e.g., if searching "Marketing Manager", exclude "Sales Manager", "HR Manager", etc.)
+    // Extract core keywords from business type for strict matching
+    const coreKeywords = businessType
+      .split(/[\s,\/]+/)
+      .filter((k) => k.length > 2)
+      .map((k) => k.toLowerCase());
+    const keywordList = coreKeywords.join('", "');
 
-QUALITY SORTING (HIGHEST to LOWEST):
-1. Senior positions (C-level, VP, Director, Head of) in "${businessType}" role
-2. Mid-level positions (Manager, Lead, Senior) in "${businessType}" role
-3. Entry-level positions in "${businessType}" role
-4. Current employees at well-known companies
-5. Active professionals with verifiable LinkedIn presence
+    const geminiPrompt = `You MUST return ONLY valid JSON. No explanations, no markdown, no text - ONLY a JSON array.
 
-For each profile, provide:
-1. Person's full name (must be real and verifiable)
-2. Their current job role/title (MUST match "${businessType}")
+Find 100 professionals whose CURRENT job title matches: "${businessType}"${industryText} in "${location}".
 
-Return ONLY a valid JSON array with 100 profiles:
+JOB TITLE RULES - Core Keywords Required: [${keywordList}]
+
+✅ INCLUDE if title contains at least 2 keywords from [${keywordList}]:
+- "${businessType}"
+- "Senior ${businessType}"
+- "Lead ${businessType}"  
+- "Staff ${businessType}"
+- "Principal ${businessType}"
+
+❌ EXCLUDE ALL:
+- Different roles (Data Scientist, Software Engineer, Product Manager)
+- Generic titles (Manager, Director, VP) without [${keywordList}]
+- Adjacent roles (if "ML Engineer", exclude "Data Engineer", "Software Engineer")
+- Students/Interns (unless title has all keywords)
+- Founders/CEOs (unless title has all keywords)
+
+LOCATION: Only people currently in ${location}
+
+OUTPUT FORMAT - Return EXACTLY this JSON structure with 100 profiles:
 [
-  {
-    "name": "Full Name",
-    "role": "Job Title matching ${businessType}"
-  }
+  {"name": "Full Name", "role": "Job Title"},
+  {"name": "Full Name", "role": "Job Title"}
 ]
 
-STRICT REQUIREMENTS:
-- Return ONLY valid JSON, no markdown or explanations
-- All 100 profiles must be from ${location}
-- Every role MUST be relevant to "${businessType}" - NO exceptions
-- Sort by seniority within the "${businessType}" field
-- Verify job title relevance before including`;
+Sort by: Principal/Staff → Senior/Lead → Mid-level → Junior
+
+CRITICAL: Response MUST be valid JSON array. No text before or after. Start with [ and end with ]`;
 
     sendUpdate({
       type: "progress",
@@ -114,6 +120,7 @@ STRICT REQUIREMENTS:
     let geminiText = geminiResponse.text().trim();
 
     console.log("Gemini AI Response received");
+    console.log("First 200 characters:", geminiText.substring(0, 200));
 
     // Remove markdown code blocks if present
     if (geminiText.startsWith("```json")) {
@@ -122,23 +129,52 @@ STRICT REQUIREMENTS:
       geminiText = geminiText.replace(/^```\n/, "").replace(/\n```$/, "");
     }
 
+    // Extract JSON if there's text before/after
+    const jsonMatch = geminiText.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      geminiText = jsonMatch[0];
+    }
+
+    // Validate it looks like JSON before parsing
+    if (!geminiText.trim().startsWith("[")) {
+      throw new Error(
+        `Gemini returned non-JSON response. First 100 chars: ${geminiText.substring(
+          0,
+          100
+        )}`
+      );
+    }
+
     // Parse Gemini response
     const basicProfiles = JSON.parse(geminiText);
+
+    if (!Array.isArray(basicProfiles) || basicProfiles.length === 0) {
+      throw new Error("Gemini returned empty or invalid array");
+    }
+
     console.log(`Parsed ${basicProfiles.length} profiles from Gemini`);
 
-    // Filter profiles to ensure role relevance
+    // Filter profiles to ensure role relevance (require at least 2 core keywords)
     const filteredProfiles = basicProfiles.filter((profile) => {
       const role = profile.role.toLowerCase();
-      const searchTerms = businessType.toLowerCase().split(/[\s,/]+/);
+      const searchTerms = businessType
+        .toLowerCase()
+        .split(/[\s,\/]+/)
+        .filter((t) => t.length > 2);
 
-      // Check if role contains any of the search terms
-      const isRelevant = searchTerms.some(
-        (term) => term.length > 2 && role.includes(term)
-      );
+      // Count how many core keywords are present in the role
+      const keywordMatches = searchTerms.filter((term) =>
+        role.includes(term)
+      ).length;
+
+      // Require at least 2 keywords to match (or all keywords if searching for single keyword)
+      const minRequired =
+        searchTerms.length === 1 ? 1 : Math.min(2, searchTerms.length);
+      const isRelevant = keywordMatches >= minRequired;
 
       if (!isRelevant) {
         console.log(
-          `⚠️ Filtered out irrelevant role: ${profile.name} - ${profile.role}`
+          `⚠️ Filtered out irrelevant role: ${profile.name} - ${profile.role} (only ${keywordMatches}/${searchTerms.length} keywords matched)`
         );
       }
 
@@ -159,40 +195,27 @@ STRICT REQUIREMENTS:
       );
 
       try {
-        // Try multiple search queries to find LinkedIn profile
-        let results = [];
-        const searchQueries = [
-          `site:linkedin.com/in/ "${basicProfile.name}" "${basicProfile.role}" "${location}"`,
-          `site:linkedin.com/in/ "${basicProfile.name}" "${location}"`,
-          `site:linkedin.com/in/ "${basicProfile.name}" ${basicProfile.role}`,
-        ];
+        // Single search query to find LinkedIn profile
+        const roleKeywords = businessType
+          .split(/[\s,\/]+/)
+          .filter((k) => k.length > 2)
+          .join(" ");
 
-        for (const query of searchQueries) {
-          try {
-            const serperResponse = await axios.post(
-              "https://google.serper.dev/search",
-              {
-                q: query,
-                num: 3,
-              },
-              {
-                headers: {
-                  "X-API-KEY": SERPER_API_KEY,
-                  "Content-Type": "application/json",
-                },
-              }
-            );
-
-            results = serperResponse.data.organic || [];
-            if (results.length > 0) {
-              console.log(`Found profile with query: ${query}`);
-              break;
-            }
-          } catch (queryError) {
-            console.log(`Query failed: ${query}`);
-            continue;
+        const serperResponse = await axios.post(
+          "https://google.serper.dev/search",
+          {
+            q: `site:linkedin.com/in/ "${basicProfile.name}" "${roleKeywords}" "${location}"`,
+            num: 3,
+          },
+          {
+            headers: {
+              "X-API-KEY": SERPER_API_KEY,
+              "Content-Type": "application/json",
+            },
           }
-        }
+        );
+
+        const results = serperResponse.data.organic || [];
 
         if (results.length > 0) {
           const result = results[0];
@@ -233,26 +256,82 @@ STRICT REQUIREMENTS:
           }
 
           // VALIDATION: Cross-check job title and location
-          const searchTerms = businessType.toLowerCase().split(/[\s,/]+/);
+          const searchTerms = businessType
+            .toLowerCase()
+            .split(/[\s,\/]+/)
+            .filter((t) => t.length > 2);
           const titleToCheck = extractedJobTitle.toLowerCase();
           const locationToCheck = personLocation.toLowerCase();
           const requestedLocation = location.toLowerCase();
 
-          // Check if extracted job title matches search terms
-          const titleMatches = searchTerms.some(
-            (term) => term.length > 2 && titleToCheck.includes(term)
-          );
+          // Check if extracted job title matches search terms (require at least 2 keywords or all if single)
+          const keywordMatchCount = searchTerms.filter((term) =>
+            titleToCheck.includes(term)
+          ).length;
+          const minRequired =
+            searchTerms.length === 1 ? 1 : Math.min(2, searchTerms.length);
+          const titleMatches = keywordMatchCount >= minRequired;
 
-          // Check if location matches (flexible matching)
+          // Check if location matches (flexible matching with city-to-state mapping)
+          const cityToState = {
+            // Major Indian cities
+            bengaluru: "karnataka",
+            bangalore: "karnataka",
+            mumbai: "maharashtra",
+            bombay: "maharashtra",
+            pune: "maharashtra",
+            nagpur: "maharashtra",
+            delhi: "delhi",
+            "new delhi": "delhi",
+            gurgaon: "haryana",
+            gurugram: "haryana",
+            noida: "uttar pradesh",
+            hyderabad: "telangana",
+            chennai: "tamil nadu",
+            madras: "tamil nadu",
+            coimbatore: "tamil nadu",
+            kolkata: "west bengal",
+            calcutta: "west bengal",
+            ahmedabad: "gujarat",
+            surat: "gujarat",
+            vadodara: "gujarat",
+            jaipur: "rajasthan",
+            kota: "rajasthan",
+            lucknow: "uttar pradesh",
+            kanpur: "uttar pradesh",
+            agra: "uttar pradesh",
+            chandigarh: "chandigarh",
+            mohali: "punjab",
+            panchkula: "haryana",
+            kochi: "kerala",
+            cochin: "kerala",
+            thiruvananthapuram: "kerala",
+            trivandrum: "kerala",
+            indore: "madhya pradesh",
+            bhopal: "madhya pradesh",
+            visakhapatnam: "andhra pradesh",
+            vijayawada: "andhra pradesh",
+            patna: "bihar",
+            bhubaneswar: "odisha",
+            guwahati: "assam",
+            ranchi: "jharkhand",
+            raipur: "chhattisgarh",
+          };
+
           const locationWords = requestedLocation.split(/[\s,]+/);
+          const requestedState =
+            cityToState[requestedLocation] || requestedLocation;
+
           const locationMatches =
             !personLocation ||
             locationWords.some((word) => locationToCheck.includes(word)) ||
-            locationToCheck.includes(requestedLocation);
+            locationToCheck.includes(requestedLocation) ||
+            (requestedState !== requestedLocation &&
+              locationToCheck.includes(requestedState));
 
           if (!titleMatches) {
             console.log(
-              `⚠️ REJECTED: Job title mismatch - "${extractedJobTitle}" doesn't match "${businessType}" for ${basicProfile.name}`
+              `⚠️ REJECTED: Job title mismatch - "${extractedJobTitle}" has only ${keywordMatchCount}/${searchTerms.length} keywords from "${businessType}" for ${basicProfile.name}`
             );
             continue; // Skip this profile
           }
@@ -337,7 +416,7 @@ STRICT REQUIREMENTS:
     } else if (error.message.includes("quota")) {
       errorMessage = "API quota exceeded";
     } else if (error.message.includes("JSON")) {
-      errorMessage = "Failed to parse AI response";
+      errorMessage = "AI returned invalid format. Please try again.";
     }
 
     res.write(
@@ -391,23 +470,16 @@ app.get("/api/business-leads", async (req, res) => {
       model: "gemini-2.5-flash",
     });
 
-    const geminiPrompt = `Find 50 high-quality businesses for "${businessType}" in "${location}". 
+    const geminiPrompt = `Return ONLY valid JSON. No text, no explanations - ONLY a JSON array.
 
-CRITICAL REQUIREMENTS:
-1. Return businesses sorted by quality: HIGHEST to LOWEST
-2. Quality criteria (priority order):
-   - Established businesses with good reputation
-   - Complete contact information available
-   - Active operations with verifiable presence
-   - Professional establishments (exclude home-based unless high quality)
+Find 50 businesses for "${businessType}" in "${location}".
 
-For each business, provide these 4 essential details:
-1. Business name (exact legal or trade name)
-2. Complete address with area/locality name
-3. Contact phone number (with country code if available)
-4. Email address (if publicly available)
+REQUIREMENTS:
+1. Sort by quality (HIGHEST to LOWEST): established → good reputation → complete info
+2. Real businesses only from ${location}
+3. Include complete address with area/locality
 
-Return ONLY a valid JSON array with 50 businesses:
+OUTPUT FORMAT - Return EXACTLY this JSON:
 [
   {
     "name": "Business Name",
@@ -417,15 +489,7 @@ Return ONLY a valid JSON array with 50 businesses:
   }
 ]
 
-SORTING INSTRUCTION: Array MUST be sorted from HIGHEST to LOWEST quality based on reputation and completeness.
-
-Requirements:
-- Return ONLY valid JSON, no markdown or explanations
-- All 50 businesses must be real and from ${location}
-- Include complete address with area/locality for accurate Maps links
-- Use "N/A" if phone or email not available
-- Prioritize established, reputable businesses
-- Focus on accuracy and verifiable information`;
+CRITICAL: Valid JSON array only. Start with [ and end with ]. No markdown, no text before/after.`;
 
     sendUpdate({
       type: "progress",
@@ -440,6 +504,7 @@ Requirements:
     let geminiText = geminiResponse.text().trim();
 
     console.log("Gemini AI Response received");
+    console.log("First 200 characters:", geminiText.substring(0, 200));
 
     // Remove markdown code blocks if present
     if (geminiText.startsWith("```json")) {
@@ -448,8 +513,29 @@ Requirements:
       geminiText = geminiText.replace(/^```\n/, "").replace(/\n```$/, "");
     }
 
+    // Extract JSON if there's text before/after
+    const jsonMatch = geminiText.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      geminiText = jsonMatch[0];
+    }
+
+    // Validate it looks like JSON before parsing
+    if (!geminiText.trim().startsWith("[")) {
+      throw new Error(
+        `Gemini returned non-JSON response. First 100 chars: ${geminiText.substring(
+          0,
+          100
+        )}`
+      );
+    }
+
     // Parse Gemini response
     const basicBusinesses = JSON.parse(geminiText);
+
+    if (!Array.isArray(basicBusinesses) || basicBusinesses.length === 0) {
+      throw new Error("Gemini returned empty or invalid array");
+    }
+
     console.log(`Parsed ${basicBusinesses.length} businesses from Gemini`);
 
     // Step 2: Enrich each business with Serper API
@@ -483,6 +569,23 @@ Requirements:
         const places = serperResponse.data.places || [];
         const place = places[0]; // Get first match
 
+        // Log available fields for debugging (first business only)
+        if (i === 0 && place) {
+          console.log("Available Serper fields:", Object.keys(place));
+          console.log("Place data sample:", JSON.stringify(place, null, 2));
+        }
+
+        // Extract reviews count - try multiple field names
+        let reviewCount = "-";
+        if (place?.reviews) reviewCount = place.reviews.toString();
+        else if (place?.reviewsCount)
+          reviewCount = place.reviewsCount.toString();
+        else if (place?.ratingCount) reviewCount = place.ratingCount.toString();
+        else if (place?.totalReviews)
+          reviewCount = place.totalReviews.toString();
+        else if (place?.numberOfReviews)
+          reviewCount = place.numberOfReviews.toString();
+
         // Merge Gemini data with Serper data
         const businessAddress = place?.address || basicBusiness.address || "-";
         const enrichedBusiness = {
@@ -495,7 +598,7 @@ Requirements:
           email: basicBusiness.email || "-",
           website: place?.website || "-",
           rating: place?.rating?.toString() || "-",
-          totalRatings: place?.reviews?.toString() || "-",
+          totalRatings: reviewCount,
           ownerName: "-",
           googleMapsLink:
             place?.link ||
@@ -509,6 +612,11 @@ Requirements:
           description: place?.category || businessType,
           category: place?.category || businessType,
           location: location,
+          lastReview:
+            place?.lastReview ||
+            place?.recentReview ||
+            place?.reviewDate ||
+            "-",
         };
 
         enrichedBusinesses.push(enrichedBusiness);
@@ -554,6 +662,7 @@ Requirements:
           description: businessType,
           category: businessType,
           location: location,
+          lastReview: "-",
         };
 
         enrichedBusinesses.push(fallbackBusiness);
@@ -611,6 +720,81 @@ Requirements:
       })}\n\n`
     );
     res.end();
+  }
+});
+
+// Parse Natural Language Query Endpoint
+app.post("/api/parse-query", async (req, res) => {
+  const { query } = req.body;
+
+  if (!query) {
+    return res.status(400).json({ success: false, error: "Query is required" });
+  }
+
+  console.log("\n=== Parsing Natural Language Query ===");
+  console.log("Query:", query);
+
+  try {
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const parsePrompt = `You are a query parser. Extract job role and location from the user's natural language query.
+
+User Query: "${query}"
+
+Extract:
+1. businessType: The job title/role (e.g., "ML Engineer", "Software Engineer", "Marketing Manager")
+2. location: The city or region (e.g., "Bangalore", "Mumbai", "Delhi")
+3. industry: Optional industry if mentioned (e.g., "Technology", "Healthcare", "Finance")
+
+Rules:
+- Normalize job titles (e.g., "machine learning engineer" → "ML Engineer")
+- Normalize locations (e.g., "Bengaluru" → "Bangalore", "NCR" → "Delhi")
+- Extract industry only if explicitly mentioned
+- If location is unclear, use "India" as default
+
+Return ONLY valid JSON (no markdown, no explanation):
+{
+  "businessType": "extracted job title",
+  "location": "extracted location",
+  "industry": "extracted industry or empty string"
+}`;
+
+    const result = await model.generateContent(parsePrompt);
+    const response = await result.response;
+    let text = response.text().trim();
+
+    console.log("Gemini response:", text.substring(0, 200));
+
+    // Clean markdown if present
+    if (text.startsWith("```json")) {
+      text = text.replace(/^```json\n/, "").replace(/\n```$/, "");
+    } else if (text.startsWith("```")) {
+      text = text.replace(/^```\n/, "").replace(/\n```$/, "");
+    }
+
+    // Extract JSON object
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      text = jsonMatch[0];
+    }
+
+    const parsed = JSON.parse(text);
+
+    console.log("Parsed result:", parsed);
+
+    res.json({
+      success: true,
+      businessType: parsed.businessType || "",
+      location: parsed.location || "India",
+      industry: parsed.industry || "",
+    });
+  } catch (error) {
+    console.error("Query parsing error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to parse query. Please use the advanced search form.",
+    });
   }
 });
 
