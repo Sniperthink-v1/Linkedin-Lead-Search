@@ -54,7 +54,7 @@ model Search {
 model SavedLead {
   id            String   @id @default(uuid())
   userId        String
-  searchId      String
+  searchId      String?
   leadType      String   // "linkedin" or "business"
   
   // LinkedIn profile fields
@@ -75,13 +75,16 @@ model SavedLead {
   totalRatings  String?
   lastReview    String?
   googleMapsLink String?
+  ownerName     String?
+  description   String?
+  searchDate    DateTime?
   
   // Metadata
   savedAt       DateTime @default(now())
   exported      Boolean  @default(false)
   
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  search        Search   @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  search        Search?  @relation(fields: [searchId], references: [id], onDelete: Cascade)
   
   @@index([userId, leadType])
   @@index([searchId])

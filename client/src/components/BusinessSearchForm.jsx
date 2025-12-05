@@ -1,11 +1,14 @@
 import React, { useState } from "react";
 import { Search, Loader2 } from "lucide-react";
 
-const BusinessSearchForm = ({ onSearch, isLoading }) => {
+const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
   const [formData, setFormData] = useState({
     businessType: "",
     location: "",
+    leadCount: 20,
   });
+
+  const isDisabled = isLoading || cooldown > 0;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -46,18 +49,46 @@ const BusinessSearchForm = ({ onSearch, isLoading }) => {
             required
           />
         </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-gray-400">
+            Number of Leads (Max 50)
+          </label>
+          <input
+            type="number"
+            min="1"
+            max="50"
+            placeholder="e.g. 20"
+            className="w-full bg-darker border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+            value={formData.leadCount}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                leadCount: Math.min(
+                  50,
+                  Math.max(1, parseInt(e.target.value) || 1)
+                ),
+              })
+            }
+            required
+          />
+        </div>
       </div>
 
       <div className="mt-8 flex justify-end">
         <button
           type="submit"
-          disabled={isLoading}
+          disabled={isDisabled}
           className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading ? (
             <>
               <Loader2 className="animate-spin w-5 h-5" />
               Searching...
+            </>
+          ) : cooldown > 0 ? (
+            <>
+              <Loader2 className="animate-spin w-5 h-5" />
+              Wait {cooldown}s
             </>
           ) : (
             <>
@@ -66,6 +97,12 @@ const BusinessSearchForm = ({ onSearch, isLoading }) => {
             </>
           )}
         </button>
+        {cooldown > 0 && (
+          <p className="text-xs text-yellow-500 mt-2">
+            ⏳ Please wait {cooldown} seconds before next search to avoid API
+            rate limits
+          </p>
+        )}
       </div>
     </form>
   );

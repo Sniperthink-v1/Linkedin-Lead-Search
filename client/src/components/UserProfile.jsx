@@ -8,13 +8,24 @@ import {
   Settings,
 } from "lucide-react";
 
-const UserProfile = ({ user, onLogout }) => {
+const UserProfile = ({
+  user,
+  onLogout,
+  onShowSearchHistory,
+  onShowSavedLeads,
+  onShowSettings,
+}) => {
   const [showDropdown, setShowDropdown] = useState(false);
 
   const handleLogout = () => {
     localStorage.removeItem("authToken");
     localStorage.removeItem("user");
     onLogout();
+  };
+
+  const handleMenuClick = (action) => {
+    setShowDropdown(false);
+    action();
   };
 
   return (
@@ -102,15 +113,24 @@ const UserProfile = ({ user, onLogout }) => {
 
             {/* Menu items */}
             <div className="p-2">
-              <button className="w-full flex items-center gap-3 px-3 py-2 hover:bg-dark rounded-lg text-gray-300 hover:text-white transition-colors">
+              <button
+                onClick={() => handleMenuClick(onShowSearchHistory)}
+                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-dark rounded-lg text-gray-300 hover:text-white transition-colors"
+              >
                 <SearchIcon className="w-4 h-4" />
                 <span className="text-sm">Search History</span>
               </button>
-              <button className="w-full flex items-center gap-3 px-3 py-2 hover:bg-dark rounded-lg text-gray-300 hover:text-white transition-colors">
+              <button
+                onClick={() => handleMenuClick(onShowSavedLeads)}
+                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-dark rounded-lg text-gray-300 hover:text-white transition-colors"
+              >
                 <Download className="w-4 h-4" />
                 <span className="text-sm">Saved Leads</span>
               </button>
-              <button className="w-full flex items-center gap-3 px-3 py-2 hover:bg-dark rounded-lg text-gray-300 hover:text-white transition-colors">
+              <button
+                onClick={() => handleMenuClick(onShowSettings)}
+                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-dark rounded-lg text-gray-300 hover:text-white transition-colors"
+              >
                 <Settings className="w-4 h-4" />
                 <span className="text-sm">Settings</span>
               </button>

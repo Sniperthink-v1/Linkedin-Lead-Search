@@ -3,6 +3,9 @@ import SearchForm from "./components/SearchForm";
 import BusinessSearchForm from "./components/BusinessSearchForm";
 import AuthModal from "./components/AuthModal";
 import UserProfile from "./components/UserProfile";
+import SearchHistory from "./components/SearchHistory";
+import SavedLeads from "./components/SavedLeads";
+import Settings from "./components/Settings";
 import {
   Users,
   ExternalLink,
@@ -12,6 +15,9 @@ import {
   Copy,
   LogIn,
   UserPlus,
+  Bookmark,
+  BookmarkCheck,
+  Loader2,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -26,11 +32,31 @@ function App() {
   const [searched, setSearched] = useState(false);
   const [totalResults, setTotalResults] = useState(0);
   const [copiedLink, setCopiedLink] = useState(null);
+  const [savedLeads, setSavedLeads] = useState(new Set());
+  const [savingLead, setSavingLead] = useState(null);
+
+  // Rate limiting state
+  const [lastSearchTime, setLastSearchTime] = useState(0);
+  const [searchCooldown, setSearchCooldown] = useState(0);
+  const SEARCH_COOLDOWN_MS = 15000; // 15 seconds between searches
 
   // Authentication state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showSearchHistory, setShowSearchHistory] = useState(false);
+  const [showSavedLeads, setShowSavedLeads] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  // Rate limiting cooldown timer
+  useEffect(() => {
+    if (searchCooldown > 0) {
+      const timer = setInterval(() => {
+        setSearchCooldown((prev) => Math.max(0, prev - 1));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [searchCooldown]);
 
   // Check if user is logged in on mount
   useEffect(() => {
@@ -81,6 +107,66 @@ function App() {
     setTimeout(() => setCopiedLink(null), 2000);
   };
 
+  const handleSaveLead = async (lead) => {
+    console.log("Save button clicked, lead:", lead);
+    console.log("Active tab:", activeTab);
+
+    const token = localStorage.getItem("authToken");
+    if (!token) {
+      console.log("No token found, showing auth modal");
+      setShowAuthModal(true);
+      return;
+    }
+
+    // Create unique key for the lead
+    const leadKey =
+      activeTab === "people" ? lead.profileLink : lead.googleMapsLink;
+
+    console.log("Lead key:", leadKey);
+    console.log("Already saved?", savedLeads.has(leadKey));
+
+    if (savedLeads.has(leadKey)) {
+      return; // Already saved
+    }
+
+    setSavingLead(leadKey);
+
+    try {
+      console.log("Sending save request...");
+      const response = await fetch(`${API_URL}/api/leads/save`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          leadData: lead,
+          leadType: activeTab,
+        }),
+      });
+
+      console.log("Response status:", response.status);
+      const data = await response.json();
+      console.log("Response data:", data);
+
+      if (data.success) {
+        setSavedLeads((prev) => new Set([...prev, leadKey]));
+        console.log("Lead saved successfully!");
+        // Optionally show success message
+      } else {
+        console.error("Failed to save lead:", data.error);
+        if (response.status === 409) {
+          // Already saved
+          setSavedLeads((prev) => new Set([...prev, leadKey]));
+        }
+      }
+    } catch (error) {
+      console.error("Error saving lead:", error);
+    } finally {
+      setSavingLead(null);
+    }
+  };
+
   const handleDownloadExcel = () => {
     // Prepare data for Excel export based on active tab
     let excelData, sheetName, filename;
@@ -97,101 +183,80 @@ function App() {
     } else {
       excelData = leads.map((lead) => ({
         "Business Name": lead.name,
+        Location: lead.location || "-",
+        Description: lead.description || lead.category || "-",
         Address: lead.address || "-",
         Phone: lead.phone || "-",
         Email: lead.email || "-",
-        Website: lead.website || "-",
         Owner: lead.ownerName || "-",
+        Website: lead.website || "-",
         Rating: lead.rating || "-",
         "Total Ratings": lead.totalRatings || "-",
         "Last Review": lead.lastReview || "-",
-        Instagram: lead.instagram || "-",
-        Facebook: lead.facebook || "-",
-        Description: lead.description || "-",
-        Category: lead.category || "-",
+        "Search Date": lead.searchDate
+          ? new Date(lead.searchDate).toLocaleDateString()
+          : "-",
         "Google Maps Link": lead.googleMapsLink,
       }));
       sheetName = "Business Leads";
       filename = "business_leads";
     }
 
-    // Create worksheet from data
+    // Create workbook and worksheet
     const worksheet = XLSX.utils.json_to_sheet(excelData);
-
-    // Set column widths for better readability
-    if (activeTab === "people") {
-      worksheet["!cols"] = [
-        { wch: 25 }, // Name
-        { wch: 30 }, // Job Title
-        { wch: 30 }, // Company
-        { wch: 50 }, // Link
-      ];
-
-      // Format the Link column as hyperlinks
-      const range = XLSX.utils.decode_range(worksheet["!ref"]);
-      for (let row = range.s.r + 1; row <= range.e.r; row++) {
-        const linkCell = XLSX.utils.encode_cell({ r: row, c: 3 }); // Column D (Link)
-        if (worksheet[linkCell]) {
-          const url = worksheet[linkCell].v;
-          worksheet[linkCell] = {
-            t: "s",
-            v: url,
-            l: { Target: url, Tooltip: "Open LinkedIn Profile" },
-          };
-        }
-      }
-    } else {
-      worksheet["!cols"] = [
-        { wch: 30 }, // Business Name
-        { wch: 40 }, // Address
-        { wch: 18 }, // Phone
-        { wch: 35 }, // Website
-        { wch: 10 }, // Rating
-        { wch: 15 }, // Total Ratings
-        { wch: 20 }, // Last Review
-        { wch: 50 }, // Google Maps Link
-      ];
-
-      // Format the Website and Google Maps Link columns as hyperlinks
-      const range = XLSX.utils.decode_range(worksheet["!ref"]);
-      for (let row = range.s.r + 1; row <= range.e.r; row++) {
-        // Website column (column D, index 3)
-        const websiteCell = XLSX.utils.encode_cell({ r: row, c: 3 });
-        if (worksheet[websiteCell] && worksheet[websiteCell].v !== "-") {
-          const url = worksheet[websiteCell].v;
-          worksheet[websiteCell] = {
-            t: "s",
-            v: url,
-            l: { Target: url, Tooltip: "Visit Website" },
-          };
-        }
-
-        // Google Maps Link column (column G, index 6)
-        const mapsCell = XLSX.utils.encode_cell({ r: row, c: 6 });
-        if (worksheet[mapsCell]) {
-          const url = worksheet[mapsCell].v;
-          worksheet[mapsCell] = {
-            t: "s",
-            v: url,
-            l: { Target: url, Tooltip: "Open in Google Maps" },
-          };
-        }
-      }
-    }
-
-    // Create workbook and append sheet
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
 
-    // Generate filename with timestamp
+    // Generate timestamp
     const timestamp = new Date()
       .toISOString()
       .replace(/[:.]/g, "-")
       .slice(0, -5);
-    const finalFilename = `${filename}_${timestamp}.xlsx`;
 
     // Download file
-    XLSX.writeFile(workbook, finalFilename);
+    XLSX.writeFile(workbook, `${filename}_${timestamp}.xlsx`);
+  };
+
+  const handleSaveAll = async () => {
+    if (leads.length === 0) {
+      setError("No leads to save");
+      return;
+    }
+
+    if (!confirm(`Save all ${leads.length} leads to your saved leads?`)) {
+      return;
+    }
+
+    setSavingLead("all");
+    let savedCount = 0;
+    let failedCount = 0;
+
+    try {
+      for (const lead of leads) {
+        try {
+          await handleSaveLead(lead, true); // Pass true to skip individual messages
+          savedCount++;
+        } catch (error) {
+          console.error("Failed to save lead:", error);
+          failedCount++;
+        }
+      }
+
+      if (savedCount > 0) {
+        alert(
+          `Successfully saved ${savedCount} leads!${
+            failedCount > 0 ? ` (${failedCount} already saved or failed)` : ""
+          }`
+        );
+      } else {
+        alert("All leads were already saved or failed to save.");
+      }
+    } catch (error) {
+      console.error("Error saving all leads:", error);
+      setError("Failed to save all leads");
+    } finally {
+      setSavingLead(null);
+    }
   };
 
   const handleSearch = async (formData) => {
@@ -201,16 +266,35 @@ function App() {
       return;
     }
 
+    // Check rate limiting
+    const now = Date.now();
+    const timeSinceLastSearch = now - lastSearchTime;
+    if (timeSinceLastSearch < SEARCH_COOLDOWN_MS) {
+      const remainingSeconds = Math.ceil(
+        (SEARCH_COOLDOWN_MS - timeSinceLastSearch) / 1000
+      );
+      setError(
+        `Please wait ${remainingSeconds} seconds before searching again to avoid API rate limits.`
+      );
+      setSearchCooldown(remainingSeconds);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setSearched(true);
     setLeads([]);
     setTotalResults(0);
+    setLastSearchTime(now);
+    setSearchCooldown(SEARCH_COOLDOWN_MS / 1000);
 
     try {
       // Use EventSource for Server-Sent Events (SSE) to receive streaming results
       const params = new URLSearchParams(formData).toString();
-      const eventSource = new EventSource(`${API_URL}/api/leads?${params}`);
+      const token = localStorage.getItem("authToken");
+      const eventSource = new EventSource(
+        `${API_URL}/api/search/people?${params}&token=${token}`
+      );
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
@@ -248,17 +332,37 @@ function App() {
       return;
     }
 
+    // Check rate limiting
+    const now = Date.now();
+    const timeSinceLastSearch = now - lastSearchTime;
+    if (timeSinceLastSearch < SEARCH_COOLDOWN_MS) {
+      const remainingSeconds = Math.ceil(
+        (SEARCH_COOLDOWN_MS - timeSinceLastSearch) / 1000
+      );
+      setError(
+        `Please wait ${remainingSeconds} seconds before searching again to avoid API rate limits.`
+      );
+      setSearchCooldown(remainingSeconds);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setSearched(true);
     setLeads([]);
     setTotalResults(0);
+    setLastSearchTime(now);
+    setSearchCooldown(SEARCH_COOLDOWN_MS / 1000);
 
     try {
       // Use EventSource for Server-Sent Events (SSE) to receive streaming results
-      const params = new URLSearchParams(formData).toString();
+      const params = new URLSearchParams({
+        ...formData,
+        leadCount: formData.leadCount || 20,
+      }).toString();
+      const token = localStorage.getItem("authToken");
       const eventSource = new EventSource(
-        `${API_URL}/api/business-leads?${params}`
+        `${API_URL}/api/search/business?${params}&token=${token}`
       );
 
       eventSource.onmessage = (event) => {
@@ -318,7 +422,13 @@ function App() {
           {/* Auth Section */}
           <div className="ml-4">
             {isAuthenticated ? (
-              <UserProfile user={user} onLogout={handleLogout} />
+              <UserProfile
+                user={user}
+                onLogout={handleLogout}
+                onShowSearchHistory={() => setShowSearchHistory(true)}
+                onShowSavedLeads={() => setShowSavedLeads(true)}
+                onShowSettings={() => setShowSettings(true)}
+              />
             ) : (
               <div className="flex gap-2">
                 <button
@@ -413,11 +523,16 @@ function App() {
         {isAuthenticated && (
           <>
             {activeTab === "people" ? (
-              <SearchForm onSearch={handleSearch} isLoading={loading} />
+              <SearchForm
+                onSearch={handleSearch}
+                isLoading={loading}
+                cooldown={searchCooldown}
+              />
             ) : (
               <BusinessSearchForm
                 onSearch={handleBusinessSearch}
                 isLoading={loading}
+                cooldown={searchCooldown}
               />
             )}
           </>
@@ -453,13 +568,32 @@ function App() {
                 </span>{" "}
                 {activeTab === "people" ? "people" : "businesses"}
               </div>
-              <button
-                onClick={handleDownloadExcel}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-primary hover:bg-blue-600 text-white rounded-lg transition-colors"
-              >
-                <Download className="w-4 h-4" />
-                Download Excel
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleSaveAll}
+                  disabled={savingLead === "all"}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {savingLead === "all" ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <BookmarkCheck className="w-4 h-4" />
+                      Save All
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleDownloadExcel}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary hover:bg-blue-600 text-white rounded-lg transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  Download Excel
+                </button>
+              </div>
             </div>
           )}
 
@@ -491,6 +625,9 @@ function App() {
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                       Link
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                      Actions
                     </th>
                   </tr>
                 </thead>
@@ -551,6 +688,31 @@ function App() {
                           </button>
                         </div>
                       </td>
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={() => handleSaveLead(lead)}
+                          disabled={
+                            savedLeads.has(lead.profileLink) ||
+                            savingLead === lead.profileLink
+                          }
+                          className={`p-2 rounded transition-colors ${
+                            savedLeads.has(lead.profileLink)
+                              ? "bg-green-500/20 text-green-400"
+                              : "hover:bg-gray-800 text-gray-400 hover:text-primary"
+                          }`}
+                          title={
+                            savedLeads.has(lead.profileLink)
+                              ? "Saved"
+                              : "Save lead"
+                          }
+                        >
+                          {savedLeads.has(lead.profileLink) ? (
+                            <BookmarkCheck className="w-4 h-4" />
+                          ) : (
+                            <Bookmark className="w-4 h-4" />
+                          )}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -568,6 +730,12 @@ function App() {
                       Business Name
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                      Location
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                      Description
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                       Contact
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
@@ -577,16 +745,19 @@ function App() {
                       Website
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
-                      Social Media
-                    </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                       Rating
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                       Last Review
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                      Search Date
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                       Google Maps
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                      Actions
                     </th>
                   </tr>
                 </thead>
@@ -604,12 +775,13 @@ function App() {
                           <div className="text-gray-400 text-xs mt-1 max-w-xs truncate">
                             {lead.address || "-"}
                           </div>
-                          {lead.category && lead.category !== "-" && (
-                            <div className="text-gray-500 text-xs mt-1">
-                              {lead.category}
-                            </div>
-                          )}
                         </div>
+                      </td>
+                      <td className="px-6 py-4 text-gray-400 text-sm">
+                        {lead.location || "-"}
+                      </td>
+                      <td className="px-6 py-4 text-gray-400 text-sm max-w-xs truncate">
+                        {lead.description || lead.category || "-"}
                       </td>
                       <td className="px-6 py-4">
                         <div className="space-y-1">
@@ -628,55 +800,32 @@ function App() {
                       </td>
                       <td className="px-6 py-4">
                         {lead.website && lead.website !== "-" ? (
-                          <a
-                            href={lead.website}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-primary hover:text-blue-400 transition-colors"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                            <span className="text-sm">Visit</span>
-                          </a>
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={lead.website}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:text-blue-400 transition-colors text-sm truncate max-w-xs"
+                            >
+                              {lead.website}
+                            </a>
+                            <button
+                              onClick={() => handleCopyLink(lead.website)}
+                              className="p-1 hover:bg-gray-800 rounded transition-colors"
+                              title="Copy link"
+                            >
+                              {copiedLink === lead.website ? (
+                                <span className="text-green-400 text-xs">
+                                  ✓
+                                </span>
+                              ) : (
+                                <Copy className="w-4 h-4 text-gray-400 hover:text-primary" />
+                              )}
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-gray-400">-</span>
                         )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex gap-2">
-                          {lead.instagram && lead.instagram !== "-" && (
-                            <a
-                              href={
-                                lead.instagram.startsWith("http")
-                                  ? lead.instagram
-                                  : `https://instagram.com/${lead.instagram.replace(
-                                      "@",
-                                      ""
-                                    )}`
-                              }
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-pink-400 hover:text-pink-300 transition-colors"
-                              title="Instagram"
-                            >
-                              📷
-                            </a>
-                          )}
-                          {lead.facebook && lead.facebook !== "-" && (
-                            <a
-                              href={lead.facebook}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-400 hover:text-blue-300 transition-colors"
-                              title="Facebook"
-                            >
-                              👥
-                            </a>
-                          )}
-                          {(!lead.instagram || lead.instagram === "-") &&
-                            (!lead.facebook || lead.facebook === "-") && (
-                              <span className="text-gray-400">-</span>
-                            )}
-                        </div>
                       </td>
                       <td className="px-6 py-4 text-gray-400">
                         {lead.rating !== "-" ? (
@@ -690,6 +839,11 @@ function App() {
                       <td className="px-6 py-4 text-gray-400 text-sm">
                         {lead.lastReview || "-"}
                       </td>
+                      <td className="px-6 py-4 text-gray-400 text-sm">
+                        {lead.searchDate
+                          ? new Date(lead.searchDate).toLocaleDateString()
+                          : "-"}
+                      </td>
                       <td className="px-6 py-4">
                         <a
                           href={lead.googleMapsLink}
@@ -700,6 +854,31 @@ function App() {
                           <ExternalLink className="w-4 h-4" />
                           <span className="text-sm">View</span>
                         </a>
+                      </td>
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={() => handleSaveLead(lead)}
+                          disabled={
+                            savedLeads.has(lead.googleMapsLink) ||
+                            savingLead === lead.googleMapsLink
+                          }
+                          className={`p-2 rounded transition-colors ${
+                            savedLeads.has(lead.googleMapsLink)
+                              ? "bg-green-500/20 text-green-400"
+                              : "hover:bg-gray-800 text-gray-400 hover:text-primary"
+                          }`}
+                          title={
+                            savedLeads.has(lead.googleMapsLink)
+                              ? "Saved"
+                              : "Save lead"
+                          }
+                        >
+                          {savedLeads.has(lead.googleMapsLink) ? (
+                            <BookmarkCheck className="w-4 h-4" />
+                          ) : (
+                            <Bookmark className="w-4 h-4" />
+                          )}
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -716,6 +895,21 @@ function App() {
         onClose={() => setShowAuthModal(false)}
         onLoginSuccess={handleLoginSuccess}
       />
+
+      {/* Search History Modal */}
+      {showSearchHistory && (
+        <SearchHistory onClose={() => setShowSearchHistory(false)} />
+      )}
+
+      {/* Saved Leads Modal */}
+      {showSavedLeads && (
+        <SavedLeads onClose={() => setShowSavedLeads(false)} />
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <Settings user={user} onClose={() => setShowSettings(false)} />
+      )}
     </div>
   );
 }

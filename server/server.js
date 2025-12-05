@@ -8,6 +8,70 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Simple in-memory cache for Gemini responses
+const geminiCache = new Map();
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour (reduced from 24 hours for fresher data)
+const MAX_CACHE_SIZE = 500; // Increased from 100
+
+// Helper function to get cached or fetch from Gemini
+async function getCachedGeminiResponse(cacheKey, geminiFunction) {
+  // Check cache first
+  const cached = geminiCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log(`✅ Cache HIT for: ${cacheKey.substring(0, 50)}...`);
+    console.log(
+      `📊 Cache Stats: ${geminiCache.size}/${MAX_CACHE_SIZE} entries`
+    );
+    return cached.data;
+  }
+
+  console.log(`❌ Cache MISS for: ${cacheKey.substring(0, 50)}...`);
+
+  // Fetch from Gemini with retry logic
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      console.log(`🔄 Gemini API attempt ${attempt}/3...`);
+      const result = await geminiFunction();
+
+      // Cache the successful result
+      geminiCache.set(cacheKey, {
+        data: result,
+        timestamp: Date.now(),
+      });
+
+      console.log(`💾 Cached response for: ${cacheKey.substring(0, 50)}...`);
+
+      // Clean old cache entries if exceeds max size
+      if (geminiCache.size > MAX_CACHE_SIZE) {
+        // Remove oldest 20% of entries
+        const entriesToRemove = Math.floor(MAX_CACHE_SIZE * 0.2);
+        const sortedEntries = Array.from(geminiCache.entries()).sort(
+          (a, b) => a[1].timestamp - b[1].timestamp
+        );
+
+        for (let i = 0; i < entriesToRemove; i++) {
+          geminiCache.delete(sortedEntries[i][0]);
+        }
+        console.log(`🧹 Cleaned ${entriesToRemove} old cache entries`);
+      }
+
+      return result;
+    } catch (error) {
+      lastError = error;
+      console.error(`❌ Attempt ${attempt} failed:`, error.message);
+
+      if (attempt < 3) {
+        const delay = attempt * 3000; // 3s, 6s
+        console.log(`⏳ Waiting ${delay}ms before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 // CORS configuration - Allow both production and local development
 const allowedOrigins = [
   process.env.FRONTEND_URL,
@@ -38,9 +102,18 @@ app.use(cookieParser());
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+// Import middleware
+const { authenticateToken } = require("./middleware/auth");
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
+
 // Import auth routes
 const authRoutes = require("./routes/auth");
 app.use("/api/auth", authRoutes);
+
+// Import leads routes
+const leadsRoutes = require("./routes/leads");
+app.use("/api/leads", leadsRoutes);
 
 // Basic health check
 app.get("/", (req, res) => {
@@ -59,7 +132,7 @@ app.get("/", (req, res) => {
 });
 
 // LinkedIn People Search Endpoint (Hybrid: Gemini AI + Serper API)
-app.get("/api/leads", async (req, res) => {
+app.get("/api/search/people", authenticateToken, async (req, res) => {
   const { businessType, location, industry } = req.query;
 
   if (!businessType || !location) {
@@ -72,6 +145,9 @@ app.get("/api/leads", async (req, res) => {
   console.log("Business Type:", businessType);
   console.log("Location:", location);
   console.log("Industry:", industry || "N/A");
+  console.log("User ID:", req.user?.id);
+
+  let searchRecord = null;
 
   try {
     // Set headers for Server-Sent Events (SSE)
@@ -95,9 +171,14 @@ app.get("/api/leads", async (req, res) => {
     console.log("\n[Step 1] Querying Gemini AI for LinkedIn profiles...");
 
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
-    });
+
+    // Use gemini-2.5-flash (latest stable model)
+    let model;
+    let modelName = "gemini-2.5-flash";
+
+    model = genAI.getGenerativeModel({ model: modelName });
+
+    console.log(`Using model: ${modelName}`);
 
     const industryText = industry ? ` in ${industry} industry` : "";
 
@@ -148,7 +229,14 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
       message: "Searching with Gemini AI...",
     });
 
-    const geminiResult = await model.generateContent(geminiPrompt);
+    // Create cache key from search parameters
+    const cacheKey = `people:${businessType}:${location}:${industry || "all"}`;
+
+    // Use cached response or fetch from Gemini
+    const geminiResult = await getCachedGeminiResponse(cacheKey, async () => {
+      return await model.generateContent(geminiPrompt);
+    });
+
     const geminiResponse = await geminiResult.response;
     let geminiText = geminiResponse.text().trim();
 
@@ -430,11 +518,32 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
     console.log(`\n=== LinkedIn Search Complete ===`);
     console.log(`Total leads: ${enrichedLeads.length}`);
 
+    // Save search to database if user is authenticated
+    if (req.user?.id) {
+      try {
+        searchRecord = await prisma.search.create({
+          data: {
+            userId: req.user.id,
+            searchType: "people",
+            businessType,
+            location,
+            industry: industry || "",
+            resultCount: enrichedLeads.length,
+          },
+        });
+        console.log(`✅ Search saved to history: ${searchRecord.id}`);
+      } catch (dbError) {
+        console.error("Failed to save search:", dbError);
+        // Don't fail the request if DB save fails
+      }
+    }
+
     // Send final complete results
     sendUpdate({
       type: "complete",
       leads: enrichedLeads,
       total: enrichedLeads.length,
+      searchId: searchRecord?.id,
     });
 
     res.end();
@@ -464,8 +573,8 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
 });
 
 // Business Search Endpoint (Hybrid: Gemini AI + Serper API)
-app.get("/api/business-leads", async (req, res) => {
-  const { businessType, location } = req.query;
+app.get("/api/search/business", authenticateToken, async (req, res) => {
+  const { businessType, location, leadCount } = req.query;
 
   if (!businessType || !location) {
     return res
@@ -473,8 +582,16 @@ app.get("/api/business-leads", async (req, res) => {
       .json({ error: "Business Type and Location are required" });
   }
 
+  // Validate and cap leadCount
+  const requestedLeads = Math.min(50, Math.max(1, parseInt(leadCount) || 20));
+
   console.log("\n=== Business Search (Gemini + Serper Hybrid) ===");
   console.log("Business Type:", businessType);
+  console.log("Location:", location);
+  console.log("Lead Count:", requestedLeads);
+  console.log("User ID:", req.user?.id);
+
+  let searchRecord = null;
   console.log("Location:", location);
 
   // Set headers for Server-Sent Events (SSE)
@@ -499,19 +616,26 @@ app.get("/api/business-leads", async (req, res) => {
     console.log("\n[Step 1] Querying Gemini AI for basic business info...");
 
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
-    });
+
+    // Use gemini-2.5-flash (latest stable model)
+    let model;
+    let modelName = "gemini-2.5-flash";
+
+    model = genAI.getGenerativeModel({ model: modelName });
+
+    console.log(`Using model: ${modelName}`);
 
     const geminiPrompt = `Return ONLY valid JSON. No text, no explanations - ONLY a JSON array.
 
-Find 50 businesses for "${businessType}" in "${location}".
+Find EXACTLY ${requestedLeads} businesses for "${businessType}" in "${location}".
 
 REQUIREMENTS:
-1. Sort by quality (HIGHEST to LOWEST): established → good reputation → complete info
-2. Real businesses only from ${location}
-3. Include complete address with area/locality
-4. If available, include the date/time of their most recent review
+1. Return STRICTLY ${requestedLeads} results - no more, no less
+2. Sort by quality (HIGHEST to LOWEST): established → good reputation → complete info
+3. Real businesses only from ${location}
+4. Include complete address with area/locality
+5. If available, include the date/time of their most recent review
+6. If available, include the owner's name or founder's name
 
 OUTPUT FORMAT - Return EXACTLY this JSON:
 [
@@ -520,6 +644,7 @@ OUTPUT FORMAT - Return EXACTLY this JSON:
     "address": "Complete address with area, ${location}",
     "phone": "+91-XXXXXXXXXX or N/A",
     "email": "email@example.com or N/A",
+    "ownerName": "Owner/Founder full name or N/A",
     "lastReview": "Recent review date/time (e.g., '2 days ago', '1 week ago', '3 months ago') or N/A"
   }
 ]
@@ -534,7 +659,14 @@ CRITICAL: Valid JSON array only. Start with [ and end with ]. No markdown, no te
       message: "Searching with Gemini AI...",
     });
 
-    const geminiResult = await model.generateContent(geminiPrompt);
+    // Create cache key from search parameters
+    const cacheKey = `business:${businessType}:${location}:${requestedLeads}`;
+
+    // Use cached response or fetch from Gemini
+    const geminiResult = await getCachedGeminiResponse(cacheKey, async () => {
+      return await model.generateContent(geminiPrompt);
+    });
+
     const geminiResponse = await geminiResult.response;
     let geminiText = geminiResponse.text().trim();
 
@@ -623,6 +755,22 @@ CRITICAL: Valid JSON array only. Start with [ and end with ]. No markdown, no te
 
         // Merge Gemini data with Serper data
         const businessAddress = place?.address || basicBusiness.address || "-";
+
+        // Extract detailed location (city, state, country)
+        let detailedLocation = location; // Default to search location
+        if (place?.address) {
+          // Try to extract city, state, country from address
+          const addressParts = place.address.split(",").map((p) => p.trim());
+          if (addressParts.length >= 2) {
+            // Last part is usually country, second last is state/region
+            const country = addressParts[addressParts.length - 1];
+            const state = addressParts[addressParts.length - 2];
+            // City might be in earlier parts or could be the first part
+            const city = addressParts[0];
+            detailedLocation = `${city}, ${state}, ${country}`;
+          }
+        }
+
         const enrichedBusiness = {
           name: basicBusiness.name,
           address: businessAddress,
@@ -634,7 +782,10 @@ CRITICAL: Valid JSON array only. Start with [ and end with ]. No markdown, no te
           website: place?.website || "-",
           rating: place?.rating?.toString() || "-",
           totalRatings: reviewCount,
-          ownerName: "-",
+          ownerName:
+            basicBusiness.ownerName && basicBusiness.ownerName !== "N/A"
+              ? basicBusiness.ownerName
+              : "-",
           googleMapsLink:
             place?.link ||
             (businessAddress !== "-"
@@ -644,9 +795,10 @@ CRITICAL: Valid JSON array only. Start with [ and end with ]. No markdown, no te
               : "-"),
           instagram: "-",
           facebook: "-",
-          description: place?.category || businessType,
+          description: place?.category || place?.type || businessType,
           category: place?.category || businessType,
-          location: location,
+          location: detailedLocation,
+          searchDate: new Date().toISOString(),
           lastReview:
             (basicBusiness.lastReview && basicBusiness.lastReview !== "N/A"
               ? basicBusiness.lastReview
@@ -688,7 +840,10 @@ CRITICAL: Valid JSON array only. Start with [ and end with ]. No markdown, no te
           website: "-",
           rating: "-",
           totalRatings: "-",
-          ownerName: "-",
+          ownerName:
+            basicBusiness.ownerName && basicBusiness.ownerName !== "N/A"
+              ? basicBusiness.ownerName
+              : "-",
           googleMapsLink:
             fallbackAddress !== "-"
               ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
@@ -700,6 +855,7 @@ CRITICAL: Valid JSON array only. Start with [ and end with ]. No markdown, no te
           description: businessType,
           category: businessType,
           location: location,
+          searchDate: new Date().toISOString(),
           lastReview: "-",
         };
 
@@ -721,11 +877,32 @@ CRITICAL: Valid JSON array only. Start with [ and end with ]. No markdown, no te
     console.log(`\n=== Business Search Complete ===`);
     console.log(`Total businesses: ${enrichedBusinesses.length}`);
 
+    // Save search to database if user is authenticated
+    if (req.user?.id) {
+      try {
+        searchRecord = await prisma.search.create({
+          data: {
+            userId: req.user.id,
+            searchType: "business",
+            businessType,
+            location,
+            industry: "",
+            resultCount: enrichedBusinesses.length,
+          },
+        });
+        console.log(`✅ Search saved to history: ${searchRecord.id}`);
+      } catch (dbError) {
+        console.error("Failed to save search:", dbError);
+        // Don't fail the request if DB save fails
+      }
+    }
+
     // Send final complete results
     sendUpdate({
       type: "complete",
       leads: enrichedBusinesses,
       total: enrichedBusinesses.length,
+      searchId: searchRecord?.id,
     });
 
     res.end();
@@ -798,7 +975,12 @@ Return ONLY valid JSON (no markdown, no explanation):
   "industry": "extracted industry or empty string"
 }`;
 
-    const result = await model.generateContent(parsePrompt);
+    // Use caching for parse queries too
+    const cacheKey = `parse:${query.toLowerCase().trim()}`;
+    const result = await getCachedGeminiResponse(cacheKey, async () => {
+      return await model.generateContent(parsePrompt);
+    });
+
     const response = await result.response;
     let text = response.text().trim();
 
@@ -836,8 +1018,45 @@ Return ONLY valid JSON (no markdown, no explanation):
   }
 });
 
+// Cache management endpoints
+app.get("/api/cache/stats", (req, res) => {
+  const now = Date.now();
+  const entries = Array.from(geminiCache.entries()).map(([key, value]) => ({
+    key: key.substring(0, 50),
+    age: Math.floor((now - value.timestamp) / 1000 / 60), // age in minutes
+    expiresIn: Math.floor((CACHE_TTL - (now - value.timestamp)) / 1000 / 60), // minutes until expiry
+  }));
+
+  res.json({
+    success: true,
+    stats: {
+      totalEntries: geminiCache.size,
+      maxSize: MAX_CACHE_SIZE,
+      utilizationPercent: Math.floor((geminiCache.size / MAX_CACHE_SIZE) * 100),
+      cacheTTL: CACHE_TTL / 1000 / 60, // in minutes
+    },
+    entries: entries.slice(0, 20), // Show first 20 entries
+  });
+});
+
+app.post("/api/cache/clear", (req, res) => {
+  const sizeBefore = geminiCache.size;
+  geminiCache.clear();
+  console.log(`🧹 Cache cleared. Removed ${sizeBefore} entries.`);
+
+  res.json({
+    success: true,
+    message: `Cache cleared. Removed ${sizeBefore} entries.`,
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Serper API Key configured: ${SERPER_API_KEY ? "Yes" : "No"}`);
   console.log(`Gemini API Key configured: ${GEMINI_API_KEY ? "Yes" : "No"}`);
+  console.log(
+    `Cache enabled: TTL=${
+      CACHE_TTL / 1000 / 60
+    }min, Max=${MAX_CACHE_SIZE} entries`
+  );
 });

@@ -8,9 +8,14 @@ const prisma = new PrismaClient();
  */
 async function authenticateToken(req, res, next) {
   try {
-    // Get token from Authorization header or cookies
+    // Get token from Authorization header, cookies, or query params (for EventSource)
     const authHeader = req.headers["authorization"];
-    const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
+    let token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
+
+    // Fallback to query param for EventSource requests
+    if (!token && req.query.token) {
+      token = req.query.token;
+    }
 
     if (!token) {
       return res.status(401).json({ error: "Access token required" });
@@ -44,7 +49,21 @@ async function authenticateToken(req, res, next) {
     next();
   } catch (error) {
     console.error("Authentication error:", error);
-    return res.status(403).json({ error: "Invalid or expired token" });
+
+    // Provide more specific error messages
+    if (error.message.includes("expired")) {
+      return res
+        .status(401)
+        .json({ error: "Token expired. Please login again." });
+    } else if (error.message.includes("invalid")) {
+      return res
+        .status(403)
+        .json({ error: "Invalid token. Please login again." });
+    }
+
+    return res
+      .status(403)
+      .json({ error: "Authentication failed. Please login again." });
   }
 }
 

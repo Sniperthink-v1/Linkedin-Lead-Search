@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Search, Loader2, Sparkles } from "lucide-react";
 
-const SearchForm = ({ onSearch, isLoading }) => {
+const SearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
   const [formData, setFormData] = useState({
     businessType: "",
     location: "",
@@ -10,6 +10,8 @@ const SearchForm = ({ onSearch, isLoading }) => {
 
   const [quickQuery, setQuickQuery] = useState("");
   const [isParsing, setIsParsing] = useState(false);
+
+  const isDisabled = isLoading || isParsing || cooldown > 0;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -68,17 +70,22 @@ const SearchForm = ({ onSearch, isLoading }) => {
             className="flex-1 bg-darker border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
             value={quickQuery}
             onChange={(e) => setQuickQuery(e.target.value)}
-            disabled={isLoading || isParsing}
+            disabled={isDisabled}
           />
           <button
             type="submit"
-            disabled={isLoading || isParsing || !quickQuery.trim()}
+            disabled={isDisabled || !quickQuery.trim()}
             className="bg-primary hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
           >
             {isParsing ? (
               <>
                 <Loader2 className="animate-spin w-5 h-5" />
                 Parsing...
+              </>
+            ) : cooldown > 0 ? (
+              <>
+                <Loader2 className="animate-spin w-5 h-5" />
+                Wait {cooldown}s
               </>
             ) : (
               <>
@@ -89,7 +96,9 @@ const SearchForm = ({ onSearch, isLoading }) => {
           </button>
         </div>
         <p className="text-xs text-gray-500 mt-2">
-          AI will extract job title and location from your query
+          {cooldown > 0
+            ? `⏳ Please wait ${cooldown} seconds before next search (prevents API rate limits)`
+            : "AI will extract job title and location from your query"}
         </p>
       </form>
 
@@ -155,13 +164,18 @@ const SearchForm = ({ onSearch, isLoading }) => {
         <div className="mt-8 flex justify-end">
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isDisabled}
             className="bg-primary hover:bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? (
               <>
                 <Loader2 className="animate-spin w-5 h-5" />
                 Searching...
+              </>
+            ) : cooldown > 0 ? (
+              <>
+                <Loader2 className="animate-spin w-5 h-5" />
+                Wait {cooldown}s
               </>
             ) : (
               <>
