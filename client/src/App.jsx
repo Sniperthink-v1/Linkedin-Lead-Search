@@ -274,7 +274,7 @@ function App() {
         (SEARCH_COOLDOWN_MS - timeSinceLastSearch) / 1000
       );
       setError(
-        `Please wait ${remainingSeconds} seconds before searching again to avoid API rate limits.`
+        ""
       );
       setSearchCooldown(remainingSeconds);
       return;
@@ -340,7 +340,7 @@ function App() {
         (SEARCH_COOLDOWN_MS - timeSinceLastSearch) / 1000
       );
       setError(
-        `Please wait ${remainingSeconds} seconds before searching again to avoid API rate limits.`
+        ""
       );
       setSearchCooldown(remainingSeconds);
       return;

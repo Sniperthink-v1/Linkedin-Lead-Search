@@ -97,7 +97,7 @@ const SearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
         </div>
         <p className="text-xs text-gray-500 mt-2">
           {cooldown > 0
-            ? `⏳ Please wait ${cooldown} seconds before next search (prevents API rate limits)`
+            ? ""
             : "AI will extract job title and location from your query"}
         </p>
       </form>
