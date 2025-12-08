@@ -269,8 +269,11 @@ const AuthModal = ({ isOpen, onClose, onLoginSuccess }) => {
         {/* Test credentials hint */}
         <div className="bg-dark bg-opacity-50 p-4 rounded-b-2xl border-t border-gray-800">
           <p className="text-xs text-gray-500 text-center">
-            <strong className="text-gray-400">Test Account:</strong>{" "}
-            techsupport@sniperthink.com / sniperthinkProduct@LeadGen
+            <strong className="text-gray-400">Test Account:</strong>
+            <br />
+            <span className="text-gray-400">Username:</span> techsupport@sniperthink.com
+            <br />
+            <span className="text-gray-400">Password:</span> sniperthinkProduct@LeadGen
           </p>
         </div>
       </div>
