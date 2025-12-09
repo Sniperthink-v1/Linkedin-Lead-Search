@@ -48,6 +48,10 @@ function App() {
   const [showSearchHistory, setShowSearchHistory] = useState(false);
   const [showSavedLeads, setShowSavedLeads] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  
+  // Track last search parameters for "Load More" functionality
+  const [lastSearchParams, setLastSearchParams] = useState(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   // Rate limiting cooldown timer
   useEffect(() => {
@@ -331,32 +335,39 @@ function App() {
     }
   };
 
-  const handleBusinessSearch = async (formData) => {
+  const handleBusinessSearch = async (formData, isLoadMore = false) => {
     // Require authentication
     if (!isAuthenticated) {
       setShowAuthModal(true);
       return;
     }
 
-    // Check rate limiting
-    const now = Date.now();
-    const timeSinceLastSearch = now - lastSearchTime;
-    if (timeSinceLastSearch < SEARCH_COOLDOWN_MS) {
-      const remainingSeconds = Math.ceil(
-        (SEARCH_COOLDOWN_MS - timeSinceLastSearch) / 1000
-      );
-      setError("");
-      setSearchCooldown(remainingSeconds);
-      return;
+    // Check rate limiting (skip for load more)
+    if (!isLoadMore) {
+      const now = Date.now();
+      const timeSinceLastSearch = now - lastSearchTime;
+      if (timeSinceLastSearch < SEARCH_COOLDOWN_MS) {
+        const remainingSeconds = Math.ceil(
+          (SEARCH_COOLDOWN_MS - timeSinceLastSearch) / 1000
+        );
+        setError("");
+        setSearchCooldown(remainingSeconds);
+        return;
+      }
     }
 
-    setLoading(true);
-    setError(null);
-    setSearched(true);
-    setLeads([]);
-    setTotalResults(0);
-    setLastSearchTime(now);
-    setSearchCooldown(SEARCH_COOLDOWN_MS / 1000);
+    if (isLoadMore) {
+      setIsLoadingMore(true);
+    } else {
+      setLoading(true);
+      setError(null);
+      setSearched(true);
+      setLeads([]);
+      setTotalResults(0);
+      setLastSearchTime(Date.now());
+      setSearchCooldown(SEARCH_COOLDOWN_MS / 1000);
+      setLastSearchParams(formData);
+    }
 
     try {
       // Use EventSource for Server-Sent Events (SSE) to receive streaming results
@@ -375,17 +386,31 @@ function App() {
         if (data.type === "error") {
           eventSource.close();
           setError(data.error || data.message || "An error occurred");
-          setLoading(false);
+          if (isLoadMore) {
+            setIsLoadingMore(false);
+          } else {
+            setLoading(false);
+          }
           return;
         }
 
         if (data.type === "progress" || data.type === "complete") {
-          setLeads(data.leads);
-          setTotalResults(data.total || data.leads.length);
+          if (isLoadMore) {
+            // Append new leads to existing ones
+            setLeads(prevLeads => [...prevLeads, ...data.leads]);
+            setTotalResults(prevTotal => prevTotal + (data.leads.length || 0));
+          } else {
+            setLeads(data.leads);
+            setTotalResults(data.total || data.leads.length);
+          }
 
           if (data.type === "complete") {
             eventSource.close();
-            setLoading(false);
+            if (isLoadMore) {
+              setIsLoadingMore(false);
+            } else {
+              setLoading(false);
+            }
           }
         }
       };
@@ -396,12 +421,26 @@ function App() {
         setError(
           "Failed to connect to server. Please check your internet connection and try again."
         );
-        setLoading(false);
+        if (isLoadMore) {
+          setIsLoadingMore(false);
+        } else {
+          setLoading(false);
+        }
       };
     } catch (err) {
       setError("Failed to fetch business leads. Please try again.");
       console.error(err);
-      setLoading(false);
+      if (isLoadMore) {
+        setIsLoadingMore(false);
+      } else {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleLoadMoreBusinesses = () => {
+    if (lastSearchParams && !isLoadingMore) {
+      handleBusinessSearch(lastSearchParams, true);
     }
   };
 
@@ -572,6 +611,25 @@ function App() {
                 {activeTab === "people" ? "people" : "businesses"}
               </div>
               <div className="flex items-center gap-3">
+                {activeTab === "business" && lastSearchParams && (
+                  <button
+                    onClick={handleLoadMoreBusinesses}
+                    disabled={isLoadingMore}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoadingMore ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Loading More...
+                      </>
+                    ) : (
+                      <>
+                        <Building2 className="w-4 h-4" />
+                        Load More
+                      </>
+                    )}
+                  </button>
+                )}
                 <button
                   onClick={handleSaveAll}
                   disabled={savingLead === "all"}

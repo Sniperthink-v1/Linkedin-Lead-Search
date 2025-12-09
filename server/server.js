@@ -167,6 +167,41 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
   console.log("User ID:", req.user?.id);
 
   let searchRecord = null;
+  let excludePeopleNames = [];
+
+  // Fetch previously seen people for this user
+  if (req.user?.id) {
+    try {
+      const searchQuery = `${businessType}_${location}${industry ? '_' + industry : ''}`;
+      
+      const previousLeads = await prisma.userLeadHistory.findMany({
+        where: {
+          userId: req.user.id,
+          leadType: 'people',
+          searchQuery: searchQuery
+        },
+        select: {
+          leadIdentifier: true
+        }
+      });
+
+      // Extract names from identifiers (format: linkedin_{name}_{profileLink})
+      excludePeopleNames = previousLeads
+        .map(lead => {
+          const match = lead.leadIdentifier.match(/^linkedin_(.+?)_http/);
+          return match ? match[1] : null;
+        })
+        .filter(name => name && name.length > 0);
+
+      if (excludePeopleNames.length > 0) {
+        console.log(`📋 Found ${excludePeopleNames.length} previously seen people to exclude`);
+        console.log(`Sample exclusions: ${excludePeopleNames.slice(0, 3).join(', ')}`);
+      }
+    } catch (error) {
+      console.error('Failed to fetch previous people:', error);
+      // Continue without exclusions if query fails
+    }
+  }
 
   try {
     // Set headers for Server-Sent Events (SSE)
@@ -208,6 +243,10 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
       .map((k) => k.toLowerCase());
     const keywordList = coreKeywords.join('", "');
 
+    const exclusionList = excludePeopleNames.length > 0 
+      ? `\n\n❌ EXCLUDE THESE PEOPLE (already provided to user):\n${excludePeopleNames.slice(0, 50).map(name => `- ${name}`).join('\n')}${excludePeopleNames.length > 50 ? '\n...and ' + (excludePeopleNames.length - 50) + ' more' : ''}\n`
+      : '';
+
     const geminiPrompt = `You MUST return ONLY valid JSON. No explanations, no markdown, no text - ONLY a JSON array.
 
 Find 100 professionals whose CURRENT job title matches: "${businessType}"${industryText} in "${location}".
@@ -226,7 +265,7 @@ JOB TITLE RULES - Core Keywords Required: [${keywordList}]
 - Generic titles (Manager, Director, VP) without [${keywordList}]
 - Adjacent roles (if "ML Engineer", exclude "Data Engineer", "Software Engineer")
 - Students/Interns (unless title has all keywords)
-- Founders/CEOs (unless title has all keywords)
+- Founders/CEOs (unless title has all keywords)${exclusionList}
 
 LOCATION: Only people currently in ${location}
 
@@ -327,6 +366,30 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
     console.log("\n[Step 2] Enriching with Serper API...");
 
     const enrichedLeads = [];
+    
+    // Fetch user's previous people identifiers for deduplication
+    let previousPeopleIdentifiers = new Set();
+    if (req.user?.id) {
+      try {
+        const searchQuery = `${businessType}_${location}${industry ? '_' + industry : ''}`;
+        
+        const previousLeads = await prisma.userLeadHistory.findMany({
+          where: {
+            userId: req.user.id,
+            leadType: 'people',
+            searchQuery: searchQuery
+          },
+          select: {
+            leadIdentifier: true
+          }
+        });
+
+        previousPeopleIdentifiers = new Set(previousLeads.map(l => l.leadIdentifier));
+        console.log(`📋 Loaded ${previousPeopleIdentifiers.size} previous people identifiers for real-time deduplication`);
+      } catch (error) {
+        console.error('Failed to load previous people for deduplication:', error);
+      }
+    }
 
     for (let i = 0; i < filteredProfiles.length; i++) {
       const basicProfile = filteredProfiles[i];
@@ -502,7 +565,32 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
             title: result.title,
           };
 
+          // Check if this person was already provided to user (real-time deduplication)
+          const leadIdentifier = `linkedin_${basicProfile.name.toLowerCase().trim()}_${result.link}`;
+          
+          if (previousPeopleIdentifiers.has(leadIdentifier)) {
+            console.log(`⚠️ Skipping duplicate person (already in user history): ${basicProfile.name}`);
+            continue;
+          }
+
           enrichedLeads.push(enrichedLead);
+          
+          // Save to database immediately (non-blocking)
+          if (req.user?.id) {
+            prisma.userLeadHistory.create({
+              data: {
+                userId: req.user.id,
+                leadIdentifier: leadIdentifier,
+                searchQuery: `${businessType}_${location}${industry ? '_' + industry : ''}`,
+                leadType: 'people'
+              }
+            }).catch(err => {
+              // Silently ignore unique constraint errors (P2002)
+              if (err.code !== 'P2002') {
+                console.error('Failed to save lead to history:', err);
+              }
+            });
+          }
 
           // Send progressive update
           sendUpdate({
@@ -655,6 +743,47 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
   console.log("User ID:", req.user?.id);
 
   let searchRecord = null;
+  let excludeBusinessNames = [];
+
+  // Fetch previously seen business names for this user
+  if (req.user?.id && !specificBusinessName) {
+    try {
+      const searchQuery = ownerName
+        ? `owner_${ownerName}_${location}`
+        : `${businessType}_${location}`;
+      
+      const previousLeads = await prisma.userLeadHistory.findMany({
+        where: {
+          userId: req.user.id,
+          leadType: 'business',
+          searchQuery: {
+            contains: ownerName ? `owner_${ownerName}` : businessType
+          }
+        },
+        select: {
+          leadIdentifier: true
+        }
+      });
+
+      // Extract business names from identifiers (format: business_{name}_{location}_{contact})
+      excludeBusinessNames = previousLeads
+        .map(lead => {
+          const parts = lead.leadIdentifier.split('_');
+          // Skip first element ('business') and reconstruct name
+          const nameEndIndex = parts.length - 2; // exclude location and contact
+          return parts.slice(1, nameEndIndex).join('_');
+        })
+        .filter(name => name && name.length > 0);
+
+      if (excludeBusinessNames.length > 0) {
+        console.log(`📋 Found ${excludeBusinessNames.length} previously seen businesses to exclude`);
+        console.log(`Sample exclusions: ${excludeBusinessNames.slice(0, 3).join(', ')}`);
+      }
+    } catch (error) {
+      console.error('Failed to fetch previous businesses:', error);
+      // Continue without exclusions if query fails
+    }
+  }
   console.log("Location:", location);
 
   // Set headers for Server-Sent Events (SSE)
@@ -717,6 +846,10 @@ OUTPUT FORMAT:
 CRITICAL: Valid JSON only. No markdown, no explanations, no additional text.`;
     } else if (ownerName) {
       // Owner name search - use direct search approach
+      const exclusionList = excludeBusinessNames.length > 0 
+        ? `\n\n❌ EXCLUDE THESE BUSINESSES (already provided to user):\n${excludeBusinessNames.slice(0, 30).map(name => `- ${name}`).join('\n')}${excludeBusinessNames.length > 30 ? '\n...and ' + (excludeBusinessNames.length - 30) + ' more' : ''}`
+        : '';
+      
       geminiPrompt = `You are a search query generator. Return ONLY valid JSON with Google Maps search queries and concise descriptions.
 
 Task: Generate ${requestedLeads} search queries to find businesses potentially owned or founded by "${ownerName}" in "${location}".
@@ -731,7 +864,7 @@ CRITICAL INSTRUCTIONS:
   * Core services or products offered
   * Key specialization or market position
 - Keep descriptions concise and informative
-- Base descriptions on what you know about their actual business operations
+- Base descriptions on what you know about their actual business operations${exclusionList}
 
 OUTPUT FORMAT:
 {
@@ -748,6 +881,10 @@ OUTPUT FORMAT:
 CRITICAL: Valid JSON only. If uncertain about any business, return fewer results or empty array. No markdown, no explanations.`;
     } else {
       // General business type search - generate search queries
+      const exclusionList = excludeBusinessNames.length > 0 
+        ? `\n\n❌ EXCLUDE THESE BUSINESSES (already provided to user):\n${excludeBusinessNames.slice(0, 30).map(name => `- ${name}`).join('\n')}${excludeBusinessNames.length > 30 ? '\n...and ' + (excludeBusinessNames.length - 30) + ' more' : ''}`
+        : '';
+      
       geminiPrompt = `You are a search query generator. Return ONLY valid JSON with Google Maps search queries and concise descriptions.
 
 Task: Generate ${requestedLeads} search queries to find well-established "${businessType}" businesses in "${location}".
@@ -764,7 +901,7 @@ CRITICAL INSTRUCTIONS:
   * Key specialization within ${businessType}
 - Keep descriptions concise and informative
 - Base descriptions on what you know from their website or public information
-- ONLY add descriptions for businesses you know well
+- ONLY add descriptions for businesses you know well${exclusionList}
 
 OUTPUT FORMAT:
 {
@@ -852,7 +989,35 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
     );
 
     const enrichedBusinesses = [];
-    const seenBusinesses = new Set(); // Track duplicates
+    const seenBusinesses = new Set(); // Track duplicates in current search
+    
+    // Fetch user's previous business identifiers for deduplication
+    let previousBusinessIdentifiers = new Set();
+    if (req.user?.id && !specificBusinessName) {
+      try {
+        const searchQuery = ownerName
+          ? `owner_${ownerName}_${location}`
+          : `${businessType}_${location}`;
+        
+        const previousLeads = await prisma.userLeadHistory.findMany({
+          where: {
+            userId: req.user.id,
+            leadType: 'business',
+            searchQuery: {
+              contains: ownerName ? `owner_${ownerName}` : businessType
+            }
+          },
+          select: {
+            leadIdentifier: true
+          }
+        });
+
+        previousBusinessIdentifiers = new Set(previousLeads.map(l => l.leadIdentifier));
+        console.log(`📋 Loaded ${previousBusinessIdentifiers.size} previous business identifiers for real-time deduplication`);
+      } catch (error) {
+        console.error('Failed to load previous businesses for deduplication:', error);
+      }
+    }
 
     for (let i = 0; i < searchQueries.length; i++) {
       const searchQuery = searchQueries[i];
@@ -1021,7 +1186,36 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
           lastReview: "-", // Google Maps doesn't provide review dates in this format
         };
 
+        // Check if this business was already provided to user (real-time deduplication)
+        const leadIdentifier = `business_${businessName.toLowerCase().trim()}_${detailedLocation.toLowerCase().trim()}_${businessPhone !== '-' ? businessPhone : place.link}`;
+        
+        if (previousBusinessIdentifiers.has(leadIdentifier)) {
+          console.log(`⚠️ Skipping duplicate business (already in user history): ${businessName}`);
+          continue;
+        }
+
         enrichedBusinesses.push(enrichedBusiness);
+        
+        // Save to database immediately (non-blocking)
+        if (req.user?.id) {
+          prisma.userLeadHistory.create({
+            data: {
+              userId: req.user.id,
+              leadIdentifier: leadIdentifier,
+              searchQuery: specificBusinessName 
+                ? `specific_${specificBusinessName}_${location}`
+                : ownerName
+                ? `owner_${ownerName}_${location}`
+                : `${businessType}_${location}`,
+              leadType: 'business'
+            }
+          }).catch(err => {
+            // Silently ignore unique constraint errors (P2002)
+            if (err.code !== 'P2002') {
+              console.error('Failed to save lead to history:', err);
+            }
+          });
+        }
 
         // Send progressive update
         sendUpdate({

@@ -28,6 +28,7 @@ model User {
   // Relations
   searches          Search[]
   savedLeads        SavedLead[]
+  leadHistory       UserLeadHistory[]
   
   @@index([email])
 }
@@ -100,4 +101,20 @@ model Session {
   
   @@index([userId])
   @@index([token])
+}
+
+// User lead history - track seen leads to prevent duplicates
+model UserLeadHistory {
+  id             String   @id @default(uuid())
+  userId         String
+  leadIdentifier String   // Composite: businessName_city_phone/email
+  searchQuery    String?  // Normalized query for analytics
+  leadType       String   // "people" or "business"
+  createdAt      DateTime @default(now())
+  
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, leadIdentifier])
+  @@index([userId, leadIdentifier])
+  @@index([createdAt])
 }
