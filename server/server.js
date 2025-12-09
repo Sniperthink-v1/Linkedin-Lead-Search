@@ -13,6 +13,11 @@ const geminiCache = new Map();
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour (reduced from 24 hours for fresher data)
 const MAX_CACHE_SIZE = 500; // Increased from 100
 
+// Cache for complete search results (including Serper data)
+const resultsCache = new Map();
+const RESULTS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const MAX_RESULTS_CACHE_SIZE = 200;
+
 // Helper function to get cached or fetch from Gemini
 async function getCachedGeminiResponse(cacheKey, geminiFunction) {
   // Check cache first
@@ -216,6 +221,26 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
+    // Check if user wants cached complete results
+    if (useCached) {
+      const resultsCacheKey = `results:people:${businessType}:${location}:${industry || 'all'}`;
+      const cachedResults = resultsCache.get(resultsCacheKey);
+      
+      if (cachedResults && Date.now() - cachedResults.timestamp < RESULTS_CACHE_TTL) {
+        console.log(`⚡ Returning cached complete people results (${cachedResults.data.length} leads)`);
+        sendUpdate({
+          type: "complete",
+          leads: cachedResults.data,
+          total: cachedResults.data.length,
+          message: `Loaded ${cachedResults.data.length} cached results instantly`
+        });
+        res.end();
+        return;
+      } else {
+        console.log('❌ No cached people results found, proceeding with fresh search...');
+      }
+    }
+
     if (!GEMINI_API_KEY) {
       throw new Error("GEMINI_API_KEY not configured");
     }
@@ -302,6 +327,7 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
 
     // If cache hit and user hasn't chosen yet, ask them
     if (geminiResult.cacheHit && !useCached && req.query.useCached !== 'false') {
+      console.log('🔔 People search: Cache hit detected, asking user for choice...');
       sendUpdate({
         type: 'cache-available',
         message: 'You searched for this recently. Would you like cached results (instant) or fresh results (with deduplication)?'
@@ -309,6 +335,8 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
       res.end();
       return;
     }
+
+    console.log(`📊 People search: Processing with useCached=${useCached}, cacheHit=${geminiResult.cacheHit}`);
 
     const geminiResponse = await geminiResult.data.response;
     let geminiText = geminiResponse.text().trim();
@@ -662,6 +690,29 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
     }
 
     // Send final complete results
+    // Cache complete results for future instant retrieval
+    if (enrichedLeads.length > 0) {
+      const resultsCacheKey = `results:people:${businessType}:${location}:${industry || 'all'}`;
+      
+      resultsCache.set(resultsCacheKey, {
+        data: enrichedLeads,
+        timestamp: Date.now()
+      });
+      console.log(`💾 Cached ${enrichedLeads.length} complete people results for instant retrieval`);
+      
+      // Clean old results cache if needed
+      if (resultsCache.size > MAX_RESULTS_CACHE_SIZE) {
+        const entriesToRemove = Math.floor(MAX_RESULTS_CACHE_SIZE * 0.2);
+        const sortedEntries = Array.from(resultsCache.entries()).sort(
+          (a, b) => a[1].timestamp - b[1].timestamp
+        );
+        for (let i = 0; i < entriesToRemove; i++) {
+          resultsCache.delete(sortedEntries[i][0]);
+        }
+        console.log(`🧹 Cleaned ${entriesToRemove} old results cache entries`);
+      }
+    }
+
     sendUpdate({
       type: "complete",
       leads: enrichedLeads,
@@ -811,6 +862,33 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
   const sendUpdate = (data) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
+
+  // Check if user wants cached complete results
+  const useCached = req.query.useCached === 'true';
+  
+  if (useCached) {
+    // Create results cache key
+    const resultsCacheKey = specificBusinessName
+      ? `results:business:specific:${specificBusinessName}:${location}`
+      : ownerName
+      ? `results:business:owner:${ownerName}:${location}:${requestedLeads}`
+      : `results:business:${businessType}:${location}:${requestedLeads}`;
+    
+    const cachedResults = resultsCache.get(resultsCacheKey);
+    if (cachedResults && Date.now() - cachedResults.timestamp < RESULTS_CACHE_TTL) {
+      console.log(`⚡ Returning cached complete results (${cachedResults.data.length} leads)`);
+      sendUpdate({
+        type: "complete",
+        leads: cachedResults.data,
+        total: cachedResults.data.length,
+        message: `Loaded ${cachedResults.data.length} cached results instantly`
+      });
+      res.end();
+      return;
+    } else {
+      console.log('❌ No cached results found, proceeding with fresh search...');
+    }
+  }
 
   try {
     if (!GEMINI_API_KEY) {
@@ -963,6 +1041,7 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
 
     // If cache hit and user hasn't chosen yet, ask them
     if (geminiResult.cacheHit && !useCached && req.query.useCached !== 'false') {
+      console.log('🔔 Business search: Cache hit detected, asking user for choice...');
       sendUpdate({
         type: 'cache-available',
         message: 'You searched for this recently. Would you like cached results (instant) or fresh results (with deduplication)?'
@@ -971,6 +1050,8 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
       return;
     }
 
+    console.log(`📊 Business search: Processing with useCached=${useCached}, cacheHit=${geminiResult.cacheHit}`);
+    
     const geminiResponse = await geminiResult.data.response;
     let geminiText = geminiResponse.text().trim();
 
@@ -1338,6 +1419,33 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
     }
 
     // Send final complete results
+    // Cache complete results for future instant retrieval
+    if (enrichedBusinesses.length > 0) {
+      const resultsCacheKey = specificBusinessName
+        ? `results:business:specific:${specificBusinessName}:${location}`
+        : ownerName
+        ? `results:business:owner:${ownerName}:${location}:${requestedLeads}`
+        : `results:business:${businessType}:${location}:${requestedLeads}`;
+      
+      resultsCache.set(resultsCacheKey, {
+        data: enrichedBusinesses,
+        timestamp: Date.now()
+      });
+      console.log(`💾 Cached ${enrichedBusinesses.length} complete results for instant retrieval`);
+      
+      // Clean old results cache if needed
+      if (resultsCache.size > MAX_RESULTS_CACHE_SIZE) {
+        const entriesToRemove = Math.floor(MAX_RESULTS_CACHE_SIZE * 0.2);
+        const sortedEntries = Array.from(resultsCache.entries()).sort(
+          (a, b) => a[1].timestamp - b[1].timestamp
+        );
+        for (let i = 0; i < entriesToRemove; i++) {
+          resultsCache.delete(sortedEntries[i][0]);
+        }
+        console.log(`🧹 Cleaned ${entriesToRemove} old results cache entries`);
+      }
+    }
+
     sendUpdate({
       type: "complete",
       leads: enrichedBusinesses,

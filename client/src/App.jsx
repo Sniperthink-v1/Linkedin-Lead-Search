@@ -1028,9 +1028,9 @@ function App() {
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <div className="font-semibold text-white mb-1">Instant Results (Cached)</div>
+                  <div className="font-semibold text-white mb-1">⚡ Instant Results (Fully Cached)</div>
                   <div className="text-sm text-gray-400">
-                    Show the same results from your recent search. No API calls, instant delivery, but may include previously seen leads.
+                    Show the exact same results from your recent search. Completely instant, zero API calls, but will include any previously seen leads from that search.
                   </div>
                 </div>
               </button>
