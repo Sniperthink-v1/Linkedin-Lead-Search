@@ -271,9 +271,11 @@ const AuthModal = ({ isOpen, onClose, onLoginSuccess }) => {
           <p className="text-xs text-gray-500 text-center">
             <strong className="text-gray-400">Test Account:</strong>
             <br />
-            <span className="text-gray-400">Username:</span> techsupport@sniperthink.com
+            <span className="text-gray-400">Username:</span>{" "}
+            techsupport@sniperthink.com
             <br />
-            <span className="text-gray-400">Password:</span> sniperthinkProduct@LeadGen
+            <span className="text-gray-400">Password:</span>{" "}
+            sniperthinkProduct@LeadGen
           </p>
         </div>
       </div>

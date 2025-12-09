@@ -135,6 +135,25 @@ app.get("/", (req, res) => {
 app.get("/api/search/people", authenticateToken, async (req, res) => {
   const { businessType, location, industry } = req.query;
 
+  // Check if user's email is verified
+  if (!req.user.emailVerified) {
+    // Set headers for SSE
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    res.write(
+      `data: ${JSON.stringify({
+        type: "error",
+        error: "Email verification required",
+        message:
+          "Please verify your email address before searching for leads. Check your inbox for the verification link.",
+      })}\n\n`
+    );
+    res.end();
+    return;
+  }
+
   if (!businessType || !location) {
     return res
       .status(400)
@@ -577,6 +596,25 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
   const { businessType, location, leadCount, specificBusinessName, ownerName } =
     req.query;
 
+  // Check if user's email is verified
+  if (!req.user.emailVerified) {
+    // Set headers for SSE
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    res.write(
+      `data: ${JSON.stringify({
+        type: "error",
+        error: "Email verification required",
+        message:
+          "Please verify your email address before searching for leads. Check your inbox for the verification link.",
+      })}\n\n`
+    );
+    res.end();
+    return;
+  }
+
   // Validation logic based on search type
   if (ownerName) {
     // Owner name search - only location required
@@ -588,11 +626,9 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
   } else if (specificBusinessName) {
     // Specific business name search - only location required
     if (!location) {
-      return res
-        .status(400)
-        .json({
-          error: "Location is required when searching for a specific business",
-        });
+      return res.status(400).json({
+        error: "Location is required when searching for a specific business",
+      });
     }
   } else {
     // General business type search - both businessType and location required
@@ -656,7 +692,7 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
     let geminiPrompt;
     if (specificBusinessName) {
       // Specific business search - just return the search query
-      geminiPrompt = `You are a search query generator. Return ONLY valid JSON with a Google Maps search query and brief description.
+      geminiPrompt = `You are a search query generator. Return ONLY valid JSON with a Google Maps search query and concise business description.
 
 Task: Generate ONE search query to find "${specificBusinessName}" in "${location}" on Google Maps.
 
@@ -665,18 +701,23 @@ CRITICAL INSTRUCTIONS:
 - DO NOT add extra details you're not certain about
 - ONLY return the exact business name provided plus location
 - Use the EXACT business name as given: "${specificBusinessName}"
-- Add a 2-3 line description ONLY if you know this business well
+- Provide a MAXIMUM 2-line description (approximately 150-200 characters) focusing on:
+  * Primary services/products offered
+  * Key specialization or what they're known for
+- ONLY include description if you know this business well
+- Keep description concise and informative
+- If this business has a well-known website, base description on their actual services
 
 OUTPUT FORMAT:
 {
   "searchQueries": ["${specificBusinessName} ${location}"],
-  "descriptions": ["Brief 2-3 line description of what this business does, or empty string if unknown"]
+  "descriptions": ["Concise 2-line description (max 200 chars) of services and specialization, or empty string if unknown"]
 }
 
 CRITICAL: Valid JSON only. No markdown, no explanations, no additional text.`;
     } else if (ownerName) {
       // Owner name search - use direct search approach
-      geminiPrompt = `You are a search query generator. Return ONLY valid JSON with Google Maps search queries and descriptions.
+      geminiPrompt = `You are a search query generator. Return ONLY valid JSON with Google Maps search queries and concise descriptions.
 
 Task: Generate ${requestedLeads} search queries to find businesses potentially owned or founded by "${ownerName}" in "${location}".
 
@@ -686,7 +727,11 @@ CRITICAL INSTRUCTIONS:
 - If you don't know any businesses owned by this person, return empty array []
 - ONLY include businesses where ownership is publicly verified and well-documented
 - Focus on major, established businesses with clear ownership records
-- Add 2-3 line descriptions ONLY for businesses you know well
+- For each business description, provide MAXIMUM 2 lines (approximately 150-200 characters) focusing on:
+  * Core services or products offered
+  * Key specialization or market position
+- Keep descriptions concise and informative
+- Base descriptions on what you know about their actual business operations
 
 OUTPUT FORMAT:
 {
@@ -695,15 +740,15 @@ OUTPUT FORMAT:
     "verified business name 2 ${location}"
   ],
   "descriptions": [
-    "Brief 2-3 line description of business 1, or empty string if unknown",
-    "Brief 2-3 line description of business 2, or empty string if unknown"
+    "Concise 2-line description (max 200 chars) of services and specialization, or empty string if unknown",
+    "Concise 2-line description (max 200 chars) of services and specialization, or empty string if unknown"
   ]
 }
 
 CRITICAL: Valid JSON only. If uncertain about any business, return fewer results or empty array. No markdown, no explanations.`;
     } else {
       // General business type search - generate search queries
-      geminiPrompt = `You are a search query generator. Return ONLY valid JSON with Google Maps search queries and descriptions.
+      geminiPrompt = `You are a search query generator. Return ONLY valid JSON with Google Maps search queries and concise descriptions.
 
 Task: Generate ${requestedLeads} search queries to find well-established "${businessType}" businesses in "${location}".
 
@@ -714,7 +759,12 @@ CRITICAL INSTRUCTIONS:
 - If you don't know ${requestedLeads} businesses, return fewer results
 - Focus on reputable, long-standing businesses
 - Each business name must be REAL and VERIFIED
-- Add 2-3 line descriptions ONLY for businesses you know well
+- For each business, provide MAXIMUM 2-line description (approximately 150-200 characters) that includes:
+  * Primary services or products offered
+  * Key specialization within ${businessType}
+- Keep descriptions concise and informative
+- Base descriptions on what you know from their website or public information
+- ONLY add descriptions for businesses you know well
 
 OUTPUT FORMAT:
 {
@@ -723,8 +773,8 @@ OUTPUT FORMAT:
     "real business name 2 ${location}"
   ],
   "descriptions": [
-    "Brief 2-3 line description of business 1, or empty string if unknown",
-    "Brief 2-3 line description of business 2, or empty string if unknown"
+    "Concise 2-line description (max 200 chars) focusing on services and specialization. Empty string if unknown",
+    "Concise 2-line description (max 200 chars) focusing on services and specialization. Empty string if unknown"
   ]
 }
 
@@ -830,7 +880,7 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
         );
 
         const places = serperResponse.data.places || [];
-        
+
         // Skip if no place found
         if (places.length === 0) {
           console.log(`⚠️ No business found for query: ${searchQuery}`);
@@ -839,7 +889,7 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
 
         // Get the first result and validate it has essential data
         const place = places[0];
-        
+
         // Validate that the place has essential information
         if (!place.title && !place.name) {
           console.log(`⚠️ No business name in result for: ${searchQuery}`);
@@ -849,14 +899,16 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
           console.log(`⚠️ No address in result for: ${searchQuery}`);
           continue;
         }
-        
+
         // Check if this business was already added (by address)
         const businessKey = `${place.title || place.name}_${place.address}`;
         if (seenBusinesses.has(businessKey)) {
-          console.log(`⚠️ Duplicate business skipped: ${place.title || place.name}`);
+          console.log(
+            `⚠️ Duplicate business skipped: ${place.title || place.name}`
+          );
           continue;
         }
-        
+
         // Mark this business as seen
         seenBusinesses.add(businessKey);
 
@@ -883,41 +935,49 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
         const businessPhone = place.phoneNumber;
 
         if (!businessName || !businessAddress) {
-          console.log(`⚠️ Skipping business with incomplete data: ${businessName || 'Unknown'}`);
+          console.log(
+            `⚠️ Skipping business with incomplete data: ${
+              businessName || "Unknown"
+            }`
+          );
           continue;
         }
 
         console.log(`✅ Valid business found: ${businessName}`);
         console.log(`   Address: ${businessAddress}`);
-        console.log(`   Phone: ${businessPhone || 'Not available'}`);
+        console.log(`   Phone: ${businessPhone || "Not available"}`);
 
         // Extract detailed location (city, state, country) - only these 3 components
         let detailedLocation = location; // Default to search location
         if (businessAddress) {
           // Try to extract city, state, country from address
           const addressParts = businessAddress.split(",").map((p) => p.trim());
-          
+
           if (addressParts.length >= 3) {
             // Get country (last part)
             const country = addressParts[addressParts.length - 1];
             // Get state (second last part)
             const state = addressParts[addressParts.length - 2];
-            
+
             // Get city (third last part) - skip if it contains postal code or looks like street address
             let city = addressParts[addressParts.length - 3];
-            
+
             // If city contains postal code, skip backward to find actual city
             if (/\d{5,6}/.test(city) || /^\d+/.test(city)) {
               // Try to find city in remaining parts
               for (let i = addressParts.length - 4; i >= 0; i--) {
                 const part = addressParts[i];
-                if (!/\d{5,6}/.test(part) && !/^\d+/.test(part) && !/\b(Rd|Road|St|Street|Ave|Avenue|Lane|Drive)\b/i.test(part)) {
+                if (
+                  !/\d{5,6}/.test(part) &&
+                  !/^\d+/.test(part) &&
+                  !/\b(Rd|Road|St|Street|Ave|Avenue|Lane|Drive)\b/i.test(part)
+                ) {
                   city = part;
                   break;
                 }
               }
             }
-            
+
             // Final validation - if city still has numbers/postal codes, skip it
             if (!/\d{5,6}/.test(city) && !/^\d+/.test(city)) {
               detailedLocation = `${city}, ${state}, ${country}`;
@@ -949,7 +1009,12 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
             )}`,
           instagram: "-",
           facebook: "-",
-          description: geminiDescription || place.category || place.type || businessType || "-",
+          description:
+            geminiDescription ||
+            place.category ||
+            place.type ||
+            businessType ||
+            "-",
           category: place.category || businessType || "-",
           location: detailedLocation,
           searchDate: new Date().toISOString(),
@@ -964,10 +1029,14 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
           leads: enrichedBusinesses,
           total: enrichedBusinesses.length,
           page: i + 1,
-          message: `Found ${enrichedBusinesses.length} verified ${enrichedBusinesses.length === 1 ? 'business' : 'businesses'}...`,
+          message: `Found ${enrichedBusinesses.length} verified ${
+            enrichedBusinesses.length === 1 ? "business" : "businesses"
+          }...`,
         });
 
-        console.log(`✅ Added business ${enrichedBusinesses.length}: ${businessName}`);
+        console.log(
+          `✅ Added business ${enrichedBusinesses.length}: ${businessName}`
+        );
 
         // Delay to respect rate limits
         await new Promise((resolve) => setTimeout(resolve, 500));

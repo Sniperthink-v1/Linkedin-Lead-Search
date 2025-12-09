@@ -141,9 +141,7 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
         </div>
         <div className="flex justify-between items-center mt-3">
           <p className="text-xs text-gray-500">
-            {cooldown > 0
-              ? ""
-              : "Find businesses owned by a specific person"}
+            {cooldown > 0 ? "" : "Find businesses owned by a specific person"}
           </p>
           <button
             type="submit"

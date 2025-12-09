@@ -6,6 +6,7 @@ import UserProfile from "./components/UserProfile";
 import SearchHistory from "./components/SearchHistory";
 import SavedLeads from "./components/SavedLeads";
 import Settings from "./components/Settings";
+import EmailVerificationBanner from "./components/EmailVerificationBanner";
 import {
   Users,
   ExternalLink,
@@ -273,9 +274,7 @@ function App() {
       const remainingSeconds = Math.ceil(
         (SEARCH_COOLDOWN_MS - timeSinceLastSearch) / 1000
       );
-      setError(
-        ""
-      );
+      setError("");
       setSearchCooldown(remainingSeconds);
       return;
     }
@@ -298,6 +297,13 @@ function App() {
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
+
+        if (data.type === "error") {
+          eventSource.close();
+          setError(data.error || data.message || "An error occurred");
+          setLoading(false);
+          return;
+        }
 
         if (data.type === "progress" || data.type === "complete") {
           setLeads(data.leads);
@@ -339,9 +345,7 @@ function App() {
       const remainingSeconds = Math.ceil(
         (SEARCH_COOLDOWN_MS - timeSinceLastSearch) / 1000
       );
-      setError(
-        ""
-      );
+      setError("");
       setSearchCooldown(remainingSeconds);
       return;
     }
@@ -367,6 +371,13 @@ function App() {
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
+
+        if (data.type === "error") {
+          eventSource.close();
+          setError(data.error || data.message || "An error occurred");
+          setLoading(false);
+          return;
+        }
 
         if (data.type === "progress" || data.type === "complete") {
           setLeads(data.leads);
@@ -450,16 +461,8 @@ function App() {
           </div>
         </div>
 
-        {/* Email Verification Warning */}
-        {isAuthenticated && !user?.emailVerified && (
-          <div className="bg-yellow-500 bg-opacity-10 border border-yellow-500 text-yellow-500 px-6 py-4 rounded-lg">
-            <p className="font-semibold">⚠️ Email Verification Required</p>
-            <p className="text-sm mt-1">
-              Please verify your email address to unlock all features. Check
-              your inbox for the verification link.
-            </p>
-          </div>
-        )}
+        {/* Email Verification Banner */}
+        <EmailVerificationBanner user={user} onUpdate={setUser} />
 
         {/* Tabs */}
         <div className="flex justify-center gap-4">
@@ -732,7 +735,7 @@ function App() {
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                       Location
                     </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400 w-96">
                       Description
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
@@ -780,8 +783,10 @@ function App() {
                       <td className="px-6 py-4 text-gray-400 text-sm">
                         {lead.location || "-"}
                       </td>
-                      <td className="px-6 py-4 text-gray-400 text-sm max-w-xs truncate">
-                        {lead.description || lead.category || "-"}
+                      <td className="px-6 py-4 text-gray-400 text-sm w-96">
+                        <div className="whitespace-normal break-words">
+                          {lead.description || lead.category || "-"}
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="space-y-1">
