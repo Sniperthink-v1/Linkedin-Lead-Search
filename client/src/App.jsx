@@ -52,6 +52,8 @@ function App() {
   // Track last search parameters for "Load More" functionality
   const [lastSearchParams, setLastSearchParams] = useState(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [showCacheDialog, setShowCacheDialog] = useState(false);
+  const [pendingSearchParams, setPendingSearchParams] = useState(null);
 
   // Rate limiting cooldown timer
   useEffect(() => {
@@ -264,7 +266,7 @@ function App() {
     }
   };
 
-  const handleSearch = async (formData) => {
+  const handleSearch = async (formData, useCached = null) => {
     // Require authentication
     if (!isAuthenticated) {
       setShowAuthModal(true);
@@ -293,7 +295,10 @@ function App() {
 
     try {
       // Use EventSource for Server-Sent Events (SSE) to receive streaming results
-      const params = new URLSearchParams(formData).toString();
+      const params = new URLSearchParams({
+        ...formData,
+        ...(useCached !== null && { useCached: useCached.toString() })
+      }).toString();
       const token = localStorage.getItem("authToken");
       const eventSource = new EventSource(
         `${API_URL}/api/search/people?${params}&token=${token}`
@@ -301,6 +306,14 @@ function App() {
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
+
+        if (data.type === "cache-available") {
+          eventSource.close();
+          setShowCacheDialog(true);
+          setPendingSearchParams(formData);
+          setLoading(false);
+          return;
+        }
 
         if (data.type === "error") {
           eventSource.close();
@@ -335,7 +348,7 @@ function App() {
     }
   };
 
-  const handleBusinessSearch = async (formData, isLoadMore = false) => {
+  const handleBusinessSearch = async (formData, isLoadMore = false, useCached = null) => {
     // Require authentication
     if (!isAuthenticated) {
       setShowAuthModal(true);
@@ -374,6 +387,7 @@ function App() {
       const params = new URLSearchParams({
         ...formData,
         leadCount: formData.leadCount || 20,
+        ...(useCached !== null && { useCached: useCached.toString() })
       }).toString();
       const token = localStorage.getItem("authToken");
       const eventSource = new EventSource(
@@ -382,6 +396,18 @@ function App() {
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
+
+        if (data.type === "cache-available") {
+          eventSource.close();
+          setShowCacheDialog(true);
+          setPendingSearchParams(formData);
+          if (isLoadMore) {
+            setIsLoadingMore(false);
+          } else {
+            setLoading(false);
+          }
+          return;
+        }
 
         if (data.type === "error") {
           eventSource.close();
@@ -441,6 +467,18 @@ function App() {
   const handleLoadMoreBusinesses = () => {
     if (lastSearchParams && !isLoadingMore) {
       handleBusinessSearch(lastSearchParams, true);
+    }
+  };
+
+  const handleCachedChoice = (useCached) => {
+    setShowCacheDialog(false);
+    if (pendingSearchParams) {
+      if (activeTab === "business") {
+        handleBusinessSearch(pendingSearchParams, false, useCached);
+      } else {
+        handleSearch(pendingSearchParams, useCached);
+      }
+      setPendingSearchParams(null);
     }
   };
 
@@ -958,6 +996,75 @@ function App() {
         onClose={() => setShowAuthModal(false)}
         onLoginSuccess={handleLoginSuccess}
       />
+
+      {/* Cache Choice Dialog */}
+      {showCacheDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-dark border border-gray-800 rounded-xl p-6 max-w-md w-full">
+            <div className="flex items-start gap-4 mb-4">
+              <div className="flex-shrink-0 w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-xl font-semibold text-white mb-2">
+                  Search Recently Performed
+                </h3>
+                <p className="text-gray-400 mb-4">
+                  You searched for this recently. Choose how you'd like to proceed:
+                </p>
+              </div>
+            </div>
+            
+            <div className="space-y-3">
+              <button
+                onClick={() => handleCachedChoice(true)}
+                className="w-full flex items-start gap-3 p-4 bg-green-600/10 hover:bg-green-600/20 border border-green-600/30 rounded-lg transition-all text-left group"
+              >
+                <div className="flex-shrink-0 w-10 h-10 bg-green-600/20 rounded-full flex items-center justify-center mt-1">
+                  <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <div className="font-semibold text-white mb-1">Instant Results (Cached)</div>
+                  <div className="text-sm text-gray-400">
+                    Show the same results from your recent search. No API calls, instant delivery, but may include previously seen leads.
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleCachedChoice(false)}
+                className="w-full flex items-start gap-3 p-4 bg-blue-600/10 hover:bg-blue-600/20 border border-blue-600/30 rounded-lg transition-all text-left group"
+              >
+                <div className="flex-shrink-0 w-10 h-10 bg-blue-600/20 rounded-full flex items-center justify-center mt-1">
+                  <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <div className="font-semibold text-white mb-1">Fresh Results (With Deduplication)</div>
+                  <div className="text-sm text-gray-400">
+                    Generate new leads while automatically excluding ones you've already seen. Takes a few seconds but ensures unique results.
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <button
+              onClick={() => {
+                setShowCacheDialog(false);
+                setPendingSearchParams(null);
+              }}
+              className="mt-4 w-full px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Search History Modal */}
       {showSearchHistory && (

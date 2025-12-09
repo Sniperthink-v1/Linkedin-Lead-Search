@@ -22,7 +22,7 @@ async function getCachedGeminiResponse(cacheKey, geminiFunction) {
     console.log(
       `📊 Cache Stats: ${geminiCache.size}/${MAX_CACHE_SIZE} entries`
     );
-    return cached.data;
+    return { data: cached.data, cacheHit: true };
   }
 
   console.log(`❌ Cache MISS for: ${cacheKey.substring(0, 50)}...`);
@@ -56,7 +56,7 @@ async function getCachedGeminiResponse(cacheKey, geminiFunction) {
         console.log(`🧹 Cleaned ${entriesToRemove} old cache entries`);
       }
 
-      return result;
+      return { data: result, cacheHit: false };
     } catch (error) {
       lastError = error;
       console.error(`❌ Attempt ${attempt} failed:`, error.message);
@@ -169,8 +169,10 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
   let searchRecord = null;
   let excludePeopleNames = [];
 
-  // Fetch previously seen people for this user
-  if (req.user?.id) {
+  // Fetch previously seen people for this user (skip if using cached results)
+  const useCached = req.query.useCached === 'true';
+  
+  if (req.user?.id && !useCached) {
     try {
       const searchQuery = `${businessType}_${location}${industry ? '_' + industry : ''}`;
       
@@ -290,12 +292,25 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
     // Create cache key from search parameters
     const cacheKey = `people:${businessType}:${location}:${industry || "all"}`;
 
+    // Check if user explicitly wants cached results
+    const useCached = req.query.useCached === 'true';
+
     // Use cached response or fetch from Gemini
     const geminiResult = await getCachedGeminiResponse(cacheKey, async () => {
       return await model.generateContent(geminiPrompt);
     });
 
-    const geminiResponse = await geminiResult.response;
+    // If cache hit and user hasn't chosen yet, ask them
+    if (geminiResult.cacheHit && !useCached && req.query.useCached !== 'false') {
+      sendUpdate({
+        type: 'cache-available',
+        message: 'You searched for this recently. Would you like cached results (instant) or fresh results (with deduplication)?'
+      });
+      res.end();
+      return;
+    }
+
+    const geminiResponse = await geminiResult.data.response;
     let geminiText = geminiResponse.text().trim();
 
     console.log("Gemini AI Response received");
@@ -367,9 +382,9 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
 
     const enrichedLeads = [];
     
-    // Fetch user's previous people identifiers for deduplication
+    // Fetch user's previous people identifiers for deduplication (skip if using cached results)
     let previousPeopleIdentifiers = new Set();
-    if (req.user?.id) {
+    if (req.user?.id && !useCached) {
       try {
         const searchQuery = `${businessType}_${location}${industry ? '_' + industry : ''}`;
         
@@ -566,17 +581,18 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
           };
 
           // Check if this person was already provided to user (real-time deduplication)
+          // Skip deduplication if using cached results
           const leadIdentifier = `linkedin_${basicProfile.name.toLowerCase().trim()}_${result.link}`;
           
-          if (previousPeopleIdentifiers.has(leadIdentifier)) {
+          if (!useCached && previousPeopleIdentifiers.has(leadIdentifier)) {
             console.log(`⚠️ Skipping duplicate person (already in user history): ${basicProfile.name}`);
             continue;
           }
 
           enrichedLeads.push(enrichedLead);
           
-          // Save to database immediately (non-blocking)
-          if (req.user?.id) {
+          // Save to database immediately (non-blocking) - skip if using cached results
+          if (req.user?.id && !useCached) {
             prisma.userLeadHistory.create({
               data: {
                 userId: req.user.id,
@@ -937,12 +953,25 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
       ? `business:owner:${ownerName}:${location}:${requestedLeads}`
       : `business:${businessType}:${location}:${requestedLeads}`;
 
+    // Check if user explicitly wants cached results
+    const useCached = req.query.useCached === 'true';
+
     // Use cached response or fetch from Gemini
     const geminiResult = await getCachedGeminiResponse(cacheKey, async () => {
       return await model.generateContent(geminiPrompt);
     });
 
-    const geminiResponse = await geminiResult.response;
+    // If cache hit and user hasn't chosen yet, ask them
+    if (geminiResult.cacheHit && !useCached && req.query.useCached !== 'false') {
+      sendUpdate({
+        type: 'cache-available',
+        message: 'You searched for this recently. Would you like cached results (instant) or fresh results (with deduplication)?'
+      });
+      res.end();
+      return;
+    }
+
+    const geminiResponse = await geminiResult.data.response;
     let geminiText = geminiResponse.text().trim();
 
     console.log("Gemini AI Response received");
@@ -991,9 +1020,9 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
     const enrichedBusinesses = [];
     const seenBusinesses = new Set(); // Track duplicates in current search
     
-    // Fetch user's previous business identifiers for deduplication
+    // Fetch user's previous business identifiers for deduplication (skip if using cached results)
     let previousBusinessIdentifiers = new Set();
-    if (req.user?.id && !specificBusinessName) {
+    if (req.user?.id && !specificBusinessName && !useCached) {
       try {
         const searchQuery = ownerName
           ? `owner_${ownerName}_${location}`
@@ -1187,17 +1216,18 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
         };
 
         // Check if this business was already provided to user (real-time deduplication)
+        // Skip deduplication if using cached results
         const leadIdentifier = `business_${businessName.toLowerCase().trim()}_${detailedLocation.toLowerCase().trim()}_${businessPhone !== '-' ? businessPhone : place.link}`;
         
-        if (previousBusinessIdentifiers.has(leadIdentifier)) {
+        if (!useCached && previousBusinessIdentifiers.has(leadIdentifier)) {
           console.log(`⚠️ Skipping duplicate business (already in user history): ${businessName}`);
           continue;
         }
 
         enrichedBusinesses.push(enrichedBusiness);
         
-        // Save to database immediately (non-blocking)
-        if (req.user?.id) {
+        // Save to database immediately (non-blocking) - skip if using cached results
+        if (req.user?.id && !useCached) {
           prisma.userLeadHistory.create({
             data: {
               userId: req.user.id,
