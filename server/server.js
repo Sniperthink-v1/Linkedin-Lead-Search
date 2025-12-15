@@ -18,6 +18,212 @@ const resultsCache = new Map();
 const RESULTS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 const MAX_RESULTS_CACHE_SIZE = 200;
 
+// In-memory cache for pin codes (reduces database calls)
+const pinCodeCache = new Map();
+const PINCODE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours (pin codes don't change often)
+const MAX_PINCODE_CACHE_SIZE = 1000; // Support up to 1000 cities in memory
+
+// Pin code database for major cities (no API calls needed)
+const CITY_PIN_CODES = {
+  // Delhi NCR
+  'delhi': ['110001', '110002', '110003', '110004', '110005', '110006', '110007', '110008', '110009', '110010', '110011', '110012', '110013', '110014', '110015', '110016', '110017', '110018', '110019', '110020', '110021', '110022', '110023', '110024', '110025', '110026', '110027', '110028', '110029', '110030', '110031', '110032', '110033', '110034', '110035', '110036', '110037', '110038', '110039', '110040', '110041', '110042', '110043', '110044', '110045', '110046', '110047', '110048', '110049', '110051', '110052', '110053', '110054', '110055', '110056', '110057', '110058', '110059', '110060', '110061', '110062', '110063', '110064', '110065', '110066', '110067', '110068', '110069', '110070', '110071', '110072', '110073', '110074', '110075', '110076', '110077', '110078', '110080', '110081', '110082', '110083', '110084', '110085', '110086', '110087', '110088', '110089', '110090', '110091', '110092', '110093', '110094', '110095', '110096'],
+  'new delhi': ['110001', '110002', '110003', '110011', '110021'],
+  'noida': ['201301', '201302', '201303', '201304', '201305', '201306', '201307', '201308', '201309', '201310'],
+  'gurgaon': ['122001', '122002', '122003', '122004', '122005', '122006', '122007', '122008', '122009', '122010', '122011', '122015', '122016', '122017', '122018', '122022'],
+  'gurugram': ['122001', '122002', '122003', '122004', '122005', '122006', '122015', '122016', '122017', '122018'],
+  'faridabad': ['121001', '121002', '121003', '121004', '121005', '121006', '121007', '121008', '121009', '121010'],
+  'ghaziabad': ['201001', '201002', '201003', '201004', '201005', '201006', '201009', '201010', '201011', '201012'],
+  
+  // Mumbai
+  'mumbai': ['400001', '400002', '400003', '400004', '400005', '400006', '400007', '400008', '400009', '400010', '400011', '400012', '400013', '400014', '400015', '400016', '400017', '400018', '400019', '400020', '400021', '400022', '400023', '400024', '400025', '400026', '400027', '400028', '400029', '400030', '400031', '400032', '400033', '400034', '400035', '400036', '400037', '400038', '400039', '400042', '400043', '400049', '400050', '400051', '400052', '400053', '400054', '400055', '400056', '400057', '400058', '400059', '400060', '400061', '400062', '400063', '400064', '400065', '400066', '400067', '400068', '400069', '400070', '400071', '400072', '400074', '400075', '400076', '400077', '400078', '400079', '400080', '400081', '400082', '400083', '400084', '400085', '400086', '400087', '400088', '400089', '400090', '400091', '400092', '400093', '400094', '400095', '400096', '400097', '400098', '400099', '400101', '400102', '400103', '400104', '400105'],
+  'navi mumbai': ['400701', '400702', '400703', '400704', '400705', '400706', '400707', '400708', '400709', '400710'],
+  'thane': ['400601', '400602', '400603', '400604', '400605', '400606', '400607', '400608', '400609', '400610'],
+  
+  // Bangalore
+  'bangalore': ['560001', '560002', '560003', '560004', '560005', '560006', '560007', '560008', '560009', '560010', '560011', '560012', '560013', '560014', '560015', '560016', '560017', '560018', '560019', '560020', '560021', '560022', '560023', '560024', '560025', '560026', '560027', '560028', '560029', '560030', '560032', '560033', '560034', '560035', '560036', '560037', '560038', '560039', '560040', '560041', '560042', '560043', '560045', '560046', '560047', '560048', '560049', '560050', '560051', '560052', '560053', '560054', '560055', '560056', '560057', '560058', '560059', '560060', '560061', '560062', '560063', '560064', '560065', '560066', '560067', '560068', '560069', '560070', '560071', '560072', '560073', '560074', '560075', '560076', '560077', '560078', '560079', '560080', '560083', '560084', '560085', '560086', '560087', '560091', '560092', '560093', '560094', '560095', '560096', '560097', '560098', '560099', '560100'],
+  'bengaluru': ['560001', '560002', '560003', '560004', '560005', '560006', '560007', '560008', '560009', '560010'],
+  
+  // Hyderabad
+  'hyderabad': ['500001', '500002', '500003', '500004', '500005', '500006', '500007', '500008', '500009', '500010', '500011', '500012', '500013', '500015', '500016', '500017', '500018', '500020', '500022', '500023', '500024', '500025', '500026', '500027', '500028', '500029', '500030', '500031', '500032', '500033', '500034', '500035', '500036', '500038', '500039', '500040', '500041', '500042', '500043', '500044', '500045', '500046', '500047', '500048', '500049', '500050', '500051', '500052', '500053', '500054', '500055', '500056', '500057', '500058', '500059', '500060', '500061', '500062', '500063', '500064', '500065', '500066', '500067', '500068', '500069', '500070', '500071', '500072', '500073', '500074', '500075', '500076', '500077', '500078', '500079', '500080', '500081', '500082', '500083', '500084', '500085', '500086', '500087', '500088', '500089', '500090', '500091', '500092', '500093', '500094', '500095', '500096', '500097', '500098'],
+  
+  // Chennai
+  'chennai': ['600001', '600002', '600003', '600004', '600005', '600006', '600007', '600008', '600009', '600010', '600011', '600012', '600013', '600014', '600015', '600016', '600017', '600018', '600019', '600020', '600021', '600022', '600023', '600024', '600025', '600026', '600027', '600028', '600029', '600030', '600031', '600032', '600033', '600034', '600035', '600036', '600037', '600038', '600039', '600040', '600041', '600042', '600043', '600044', '600045', '600046', '600047', '600048', '600049', '600050', '600051', '600052', '600053', '600054', '600055', '600056', '600057', '600058', '600059', '600060', '600061', '600062', '600063', '600064', '600065', '600066', '600067', '600068', '600069', '600070', '600071', '600072', '600073', '600074', '600075', '600076', '600077', '600078', '600079', '600080', '600081', '600082', '600083', '600084', '600085', '600086', '600087', '600088', '600089', '600090', '600091', '600092', '600093', '600094', '600095', '600096', '600097', '600098', '600099', '600100'],
+  
+  // Kolkata
+  'kolkata': ['700001', '700002', '700003', '700004', '700005', '700006', '700007', '700008', '700009', '700010', '700011', '700012', '700013', '700014', '700015', '700016', '700017', '700018', '700019', '700020', '700021', '700022', '700023', '700024', '700025', '700026', '700027', '700028', '700029', '700030', '700031', '700032', '700033', '700034', '700035', '700036', '700037', '700038', '700039', '700040', '700041', '700042', '700043', '700044', '700045', '700046', '700047', '700048', '700049', '700050', '700051', '700052', '700053', '700054', '700055', '700056', '700057', '700058', '700059', '700060', '700061', '700062', '700063', '700064', '700065', '700066', '700067', '700068', '700069', '700070', '700071', '700072', '700073', '700074', '700075', '700076', '700077', '700078', '700079', '700080', '700081', '700082', '700083', '700084', '700085', '700086', '700087', '700088', '700089', '700090', '700091', '700092', '700093', '700094', '700095', '700096', '700097', '700098', '700099', '700100'],
+  
+  // Pune
+  'pune': ['411001', '411002', '411003', '411004', '411005', '411006', '411007', '411008', '411009', '411010', '411011', '411012', '411013', '411014', '411015', '411016', '411017', '411018', '411019', '411020', '411021', '411022', '411023', '411024', '411025', '411026', '411027', '411028', '411029', '411030', '411031', '411032', '411033', '411034', '411035', '411036', '411037', '411038', '411039', '411040', '411041', '411042', '411043', '411044', '411045', '411046', '411047', '411048'],
+  
+  // Ahmedabad
+  'ahmedabad': ['380001', '380002', '380003', '380004', '380005', '380006', '380007', '380008', '380009', '380010', '380013', '380014', '380015', '380016', '380018', '380019', '380021', '380022', '380023', '380024', '380025', '380026', '380027', '380028', '380050', '380051', '380052', '380053', '380054', '380055'],
+  
+  // Jaipur
+  'jaipur': ['302001', '302002', '302003', '302004', '302005', '302006', '302012', '302013', '302015', '302016', '302017', '302018', '302019', '302020', '302021', '302022', '302023', '302025', '302026', '302027', '302028', '302029', '302031', '302032', '302033', '302034', '302036', '302037', '302038', '302039'],
+  
+  // Lucknow
+  'lucknow': ['226001', '226002', '226003', '226004', '226005', '226006', '226007', '226008', '226009', '226010', '226011', '226012', '226013', '226014', '226015', '226016', '226017', '226018', '226019', '226020', '226021', '226022', '226023', '226024', '226025', '226026', '226027', '226028', '226029', '226030'],
+  
+  // Bhopal
+  'bhopal': ['462001', '462002', '462003', '462004', '462005', '462006', '462007', '462008', '462009', '462010', '462011', '462012', '462013', '462014', '462015', '462016', '462017', '462018', '462019', '462020', '462021', '462022', '462023', '462024', '462025', '462026', '462027', '462028', '462029', '462030'],
+  
+  // Indore
+  'indore': ['452001', '452002', '452003', '452004', '452005', '452006', '452007', '452008', '452009', '452010', '452011', '452012', '452013', '452014', '452015', '452016', '452017', '452018', '452020'],
+  
+  // Chandigarh
+  'chandigarh': ['160001', '160002', '160003', '160004', '160005', '160006', '160007', '160008', '160009', '160010', '160011', '160012', '160014', '160015', '160016', '160017', '160018', '160019', '160020', '160022', '160023', '160030'],
+  
+  // Surat
+  'surat': ['395001', '395002', '395003', '395004', '395005', '395006', '395007', '395008', '395009', '395010', '395011', '395012', '395013', '395017'],
+  
+  // Nagpur
+  'nagpur': ['440001', '440002', '440003', '440004', '440005', '440006', '440008', '440009', '440010', '440012', '440013', '440014', '440015', '440016', '440017', '440018', '440020', '440022', '440023', '440024'],
+  
+  // Vadodara
+  'vadodara': ['390001', '390002', '390003', '390004', '390005', '390006', '390007', '390008', '390009', '390010', '390011', '390012', '390013', '390014', '390015', '390016', '390017', '390018', '390019', '390020'],
+  
+  // Coimbatore
+  'coimbatore': ['641001', '641002', '641003', '641004', '641005', '641006', '641007', '641008', '641009', '641010', '641011', '641012', '641013', '641014', '641015', '641016', '641017', '641018', '641019', '641020'],
+  
+  // Kochi
+  'kochi': ['682001', '682002', '682003', '682004', '682005', '682006', '682007', '682008', '682009', '682010', '682011', '682012', '682013', '682014', '682015', '682016', '682017', '682018', '682019', '682020'],
+  'cochin': ['682001', '682002', '682003', '682004', '682005', '682006', '682007', '682008', '682009', '682010'],
+  
+  // Visakhapatnam
+  'visakhapatnam': ['530001', '530002', '530003', '530004', '530005', '530006', '530007', '530008', '530009', '530010', '530011', '530012', '530013', '530014', '530015', '530016', '530017', '530018', '530019', '530020'],
+  'vizag': ['530001', '530002', '530003', '530004', '530005', '530006', '530007', '530008', '530009', '530010']
+};
+
+// Helper function to get pin codes for a location (3-tier caching: memory → database → Gemini)
+async function getPinCodesForLocation(location) {
+  const locationLower = location.toLowerCase().trim();
+  
+  try {
+    // TIER 1: Check in-memory cache first (fastest - ~0.1ms)
+    const cachedPinCodes = pinCodeCache.get(locationLower);
+    if (cachedPinCodes && Date.now() - cachedPinCodes.timestamp < PINCODE_CACHE_TTL) {
+      console.log(`⚡ Pin codes from memory cache for "${location}" (${cachedPinCodes.data.length} codes)`);
+      return cachedPinCodes.data.slice(0, 10).join(', ');
+    }
+    
+    // TIER 2: Check database (fast - ~10-20ms)
+    const cityRecord = await prisma.cityPinCode.findUnique({
+      where: { city: locationLower }
+    });
+    
+    if (cityRecord && cityRecord.pinCodes.length > 0) {
+      console.log(`📍 Pin codes from database for "${location}" (${cityRecord.pinCodes.length} codes, source: ${cityRecord.source})`);
+      
+      // Cache in memory for future requests
+      pinCodeCache.set(locationLower, {
+        data: cityRecord.pinCodes,
+        timestamp: Date.now()
+      });
+      
+      // Clean memory cache if too large
+      if (pinCodeCache.size > MAX_PINCODE_CACHE_SIZE) {
+        const oldestKeys = Array.from(pinCodeCache.entries())
+          .sort((a, b) => a[1].timestamp - b[1].timestamp)
+          .slice(0, 100)
+          .map(([key]) => key);
+        oldestKeys.forEach(key => pinCodeCache.delete(key));
+        console.log(`🧹 Cleaned ${oldestKeys.length} old entries from pin code cache`);
+      }
+      
+      // Return first 10 pin codes for brevity in prompts
+      return cityRecord.pinCodes.slice(0, 10).join(', ');
+    }
+    
+    // If not in database, fetch dynamically using Gemini
+    console.log(`🔍 Pin codes not found for "${location}" - fetching dynamically...`);
+    
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    
+    const pinCodePrompt = `You are a pin code database. Return ONLY valid JSON with pin codes for the specified Indian city.
+
+Task: Provide the most commonly used pin codes (postal codes) for "${location}", India.
+
+REQUIREMENTS:
+- Return 20-30 most commonly used pin codes for this city
+- Pin codes must be valid 6-digit Indian postal codes
+- Focus on major areas within the city
+- Do NOT include pin codes from nearby cities or suburbs
+- If this is not a valid Indian city, return empty array
+
+OUTPUT FORMAT:
+{
+  "pinCodes": ["110001", "110002", "110003", ...]
+}
+
+CRITICAL: Valid JSON only. No markdown, no explanations.`;
+
+    const result = await model.generateContent(pinCodePrompt);
+    const response = await result.response;
+    let geminiText = response.text().trim();
+    
+    // Remove markdown code blocks if present
+    if (geminiText.startsWith("```json")) {
+      geminiText = geminiText.replace(/^```json\n/, "").replace(/\n```$/, "");
+    } else if (geminiText.startsWith("```")) {
+      geminiText = geminiText.replace(/^```\n/, "").replace(/\n```$/, "");
+    }
+    
+    // Extract JSON if there's text before/after
+    const jsonMatch = geminiText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      geminiText = jsonMatch[0];
+    }
+    
+    const pinCodeData = JSON.parse(geminiText);
+    const fetchedPinCodes = pinCodeData.pinCodes || [];
+    
+    if (fetchedPinCodes.length > 0) {
+      // Save to database for persistence (persistent storage)
+      await prisma.cityPinCode.create({
+        data: {
+          city: locationLower,
+          pinCodes: fetchedPinCodes,
+          source: 'dynamic'
+        }
+      });
+      
+      // Cache in memory for immediate reuse
+      pinCodeCache.set(locationLower, {
+        data: fetchedPinCodes,
+        timestamp: Date.now()
+      });
+      
+      console.log(`✅ Fetched and saved ${fetchedPinCodes.length} pin codes for "${location}" to database + cache`);
+      console.log(`   Sample pin codes: ${fetchedPinCodes.slice(0, 5).join(', ')}`);
+      
+      // Return first 10 pin codes
+      return fetchedPinCodes.slice(0, 10).join(', ');
+    } else {
+      console.log(`⚠️ No pin codes found for "${location}"`);
+      return null;
+    }
+  } catch (error) {
+    console.error(`❌ Failed to fetch pin codes for "${location}":`, error.message);
+    
+    // Fallback to static in-memory data if everything fails
+    const pinCodes = CITY_PIN_CODES[locationLower];
+    if (pinCodes && pinCodes.length > 0) {
+      console.log(`⚠️ Using fallback static data for "${location}"`);
+      
+      // Cache it for next time
+      pinCodeCache.set(locationLower, {
+        data: pinCodes,
+        timestamp: Date.now()
+      });
+      
+      return pinCodes.slice(0, 10).join(', ');
+    }
+    
+    return null;
+  }
+}
+
 // Helper function to get cached or fetch from Gemini
 async function getCachedGeminiResponse(cacheKey, geminiFunction) {
   // Check cache first
@@ -175,37 +381,43 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
   let excludePeopleNames = [];
 
   // Fetch previously seen people for this user (skip if using cached results)
-  const useCached = req.query.useCached === 'true';
-  
+  const useCached = req.query.useCached === "true";
+
   if (req.user?.id && !useCached) {
     try {
-      const searchQuery = `${businessType}_${location}${industry ? '_' + industry : ''}`;
-      
+      const searchQuery = `${businessType}_${location}${
+        industry ? "_" + industry : ""
+      }`;
+
       const previousLeads = await prisma.userLeadHistory.findMany({
         where: {
           userId: req.user.id,
-          leadType: 'people',
-          searchQuery: searchQuery
+          leadType: "people",
+          searchQuery: searchQuery,
         },
         select: {
-          leadIdentifier: true
-        }
+          leadIdentifier: true,
+        },
       });
 
       // Extract names from identifiers (format: linkedin_{name}_{profileLink})
       excludePeopleNames = previousLeads
-        .map(lead => {
+        .map((lead) => {
           const match = lead.leadIdentifier.match(/^linkedin_(.+?)_http/);
           return match ? match[1] : null;
         })
-        .filter(name => name && name.length > 0);
+        .filter((name) => name && name.length > 0);
 
       if (excludePeopleNames.length > 0) {
-        console.log(`📋 Found ${excludePeopleNames.length} previously seen people to exclude`);
-        console.log(`Sample exclusions: ${excludePeopleNames.slice(0, 3).join(', ')}`);
+        console.log(
+          `📋 Found ${excludePeopleNames.length} previously seen people to exclude`
+        );
+        console.log(
+          `Sample exclusions: ${excludePeopleNames.slice(0, 3).join(", ")}`
+        );
       }
     } catch (error) {
-      console.error('Failed to fetch previous people:', error);
+      console.error("Failed to fetch previous people:", error);
       // Continue without exclusions if query fails
     }
   }
@@ -221,23 +433,34 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
+    // Create results cache key (needed for both checking and storing)
+    const resultsCacheKey = `results:people:${businessType}:${location}:${
+      industry || "all"
+    }`;
+
+    // Check if complete cached results exist
+    const cachedResults = resultsCache.get(resultsCacheKey);
+    const hasCachedResults =
+      cachedResults && Date.now() - cachedResults.timestamp < RESULTS_CACHE_TTL;
+
     // Check if user wants cached complete results
     if (useCached) {
-      const resultsCacheKey = `results:people:${businessType}:${location}:${industry || 'all'}`;
-      const cachedResults = resultsCache.get(resultsCacheKey);
-      
-      if (cachedResults && Date.now() - cachedResults.timestamp < RESULTS_CACHE_TTL) {
-        console.log(`⚡ Returning cached complete people results (${cachedResults.data.length} leads)`);
+      if (hasCachedResults) {
+        console.log(
+          `⚡ Returning cached complete people results (${cachedResults.data.length} leads)`
+        );
         sendUpdate({
           type: "complete",
           leads: cachedResults.data,
           total: cachedResults.data.length,
-          message: `Loaded ${cachedResults.data.length} cached results instantly`
+          message: `Loaded ${cachedResults.data.length} cached results instantly`,
         });
         res.end();
         return;
       } else {
-        console.log('❌ No cached people results found, proceeding with fresh search...');
+        console.log(
+          "❌ No cached people results found, proceeding with fresh search..."
+        );
       }
     }
 
@@ -270,9 +493,17 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
       .map((k) => k.toLowerCase());
     const keywordList = coreKeywords.join('", "');
 
-    const exclusionList = excludePeopleNames.length > 0 
-      ? `\n\n❌ EXCLUDE THESE PEOPLE (already provided to user):\n${excludePeopleNames.slice(0, 50).map(name => `- ${name}`).join('\n')}${excludePeopleNames.length > 50 ? '\n...and ' + (excludePeopleNames.length - 50) + ' more' : ''}\n`
-      : '';
+    const exclusionList =
+      excludePeopleNames.length > 0
+        ? `\n\n❌ EXCLUDE THESE PEOPLE (already provided to user):\n${excludePeopleNames
+            .slice(0, 50)
+            .map((name) => `- ${name}`)
+            .join("\n")}${
+            excludePeopleNames.length > 50
+              ? "\n...and " + (excludePeopleNames.length - 50) + " more"
+              : ""
+          }\n`
+        : "";
 
     const geminiPrompt = `You MUST return ONLY valid JSON. No explanations, no markdown, no text - ONLY a JSON array.
 
@@ -318,25 +549,35 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
     const cacheKey = `people:${businessType}:${location}:${industry || "all"}`;
 
     // Check if user explicitly wants cached results
-    const useCached = req.query.useCached === 'true';
+    const useCached = req.query.useCached === "true";
 
     // Use cached response or fetch from Gemini
     const geminiResult = await getCachedGeminiResponse(cacheKey, async () => {
       return await model.generateContent(geminiPrompt);
     });
 
-    // If cache hit and user hasn't chosen yet, ask them
-    if (geminiResult.cacheHit && !useCached && req.query.useCached !== 'false') {
-      console.log('🔔 People search: Cache hit detected, asking user for choice...');
+    // If cache hit and user hasn't chosen yet, AND we have complete cached results, ask them
+    if (
+      geminiResult.cacheHit &&
+      hasCachedResults &&
+      !useCached &&
+      req.query.useCached !== "false"
+    ) {
+      console.log(
+        "🔔 People search: Cache hit detected with complete results available, asking user for choice..."
+      );
       sendUpdate({
-        type: 'cache-available',
-        message: 'You searched for this recently. Would you like cached results (instant) or fresh results (with deduplication)?'
+        type: "cache-available",
+        message:
+          "You searched for this recently. Would you like cached results (instant) or fresh results (with deduplication)?",
       });
       res.end();
       return;
     }
 
-    console.log(`📊 People search: Processing with useCached=${useCached}, cacheHit=${geminiResult.cacheHit}`);
+    console.log(
+      `📊 People search: Processing with useCached=${useCached}, cacheHit=${geminiResult.cacheHit}`
+    );
 
     const geminiResponse = await geminiResult.data.response;
     let geminiText = geminiResponse.text().trim();
@@ -409,28 +650,37 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
     console.log("\n[Step 2] Enriching with Serper API...");
 
     const enrichedLeads = [];
-    
+
     // Fetch user's previous people identifiers for deduplication (skip if using cached results)
     let previousPeopleIdentifiers = new Set();
     if (req.user?.id && !useCached) {
       try {
-        const searchQuery = `${businessType}_${location}${industry ? '_' + industry : ''}`;
-        
+        const searchQuery = `${businessType}_${location}${
+          industry ? "_" + industry : ""
+        }`;
+
         const previousLeads = await prisma.userLeadHistory.findMany({
           where: {
             userId: req.user.id,
-            leadType: 'people',
-            searchQuery: searchQuery
+            leadType: "people",
+            searchQuery: searchQuery,
           },
           select: {
-            leadIdentifier: true
-          }
+            leadIdentifier: true,
+          },
         });
 
-        previousPeopleIdentifiers = new Set(previousLeads.map(l => l.leadIdentifier));
-        console.log(`📋 Loaded ${previousPeopleIdentifiers.size} previous people identifiers for real-time deduplication`);
+        previousPeopleIdentifiers = new Set(
+          previousLeads.map((l) => l.leadIdentifier)
+        );
+        console.log(
+          `📋 Loaded ${previousPeopleIdentifiers.size} previous people identifiers for real-time deduplication`
+        );
       } catch (error) {
-        console.error('Failed to load previous people for deduplication:', error);
+        console.error(
+          "Failed to load previous people for deduplication:",
+          error
+        );
       }
     }
 
@@ -610,30 +860,38 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
 
           // Check if this person was already provided to user (real-time deduplication)
           // Skip deduplication if using cached results
-          const leadIdentifier = `linkedin_${basicProfile.name.toLowerCase().trim()}_${result.link}`;
-          
+          const leadIdentifier = `linkedin_${basicProfile.name
+            .toLowerCase()
+            .trim()}_${result.link}`;
+
           if (!useCached && previousPeopleIdentifiers.has(leadIdentifier)) {
-            console.log(`⚠️ Skipping duplicate person (already in user history): ${basicProfile.name}`);
+            console.log(
+              `⚠️ Skipping duplicate person (already in user history): ${basicProfile.name}`
+            );
             continue;
           }
 
           enrichedLeads.push(enrichedLead);
-          
+
           // Save to database immediately (non-blocking) - skip if using cached results
           if (req.user?.id && !useCached) {
-            prisma.userLeadHistory.create({
-              data: {
-                userId: req.user.id,
-                leadIdentifier: leadIdentifier,
-                searchQuery: `${businessType}_${location}${industry ? '_' + industry : ''}`,
-                leadType: 'people'
-              }
-            }).catch(err => {
-              // Silently ignore unique constraint errors (P2002)
-              if (err.code !== 'P2002') {
-                console.error('Failed to save lead to history:', err);
-              }
-            });
+            prisma.userLeadHistory
+              .create({
+                data: {
+                  userId: req.user.id,
+                  leadIdentifier: leadIdentifier,
+                  searchQuery: `${businessType}_${location}${
+                    industry ? "_" + industry : ""
+                  }`,
+                  leadType: "people",
+                },
+              })
+              .catch((err) => {
+                // Silently ignore unique constraint errors (P2002)
+                if (err.code !== "P2002") {
+                  console.error("Failed to save lead to history:", err);
+                }
+              });
           }
 
           // Send progressive update
@@ -692,14 +950,18 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
     // Send final complete results
     // Cache complete results for future instant retrieval
     if (enrichedLeads.length > 0) {
-      const resultsCacheKey = `results:people:${businessType}:${location}:${industry || 'all'}`;
-      
+      const resultsCacheKey = `results:people:${businessType}:${location}:${
+        industry || "all"
+      }`;
+
       resultsCache.set(resultsCacheKey, {
         data: enrichedLeads,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
-      console.log(`💾 Cached ${enrichedLeads.length} complete people results for instant retrieval`);
-      
+      console.log(
+        `💾 Cached ${enrichedLeads.length} complete people results for instant retrieval`
+      );
+
       // Clean old results cache if needed
       if (resultsCache.size > MAX_RESULTS_CACHE_SIZE) {
         const entriesToRemove = Math.floor(MAX_RESULTS_CACHE_SIZE * 0.2);
@@ -743,6 +1005,54 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
       })}\n\n`
     );
     res.end();
+  }
+});
+
+// PIN CODES endpoint - View all cached pin codes from database with cache stats
+app.get("/api/pincodes", authenticateToken, async (req, res) => {
+  try {
+    // Fetch all city pin codes from database
+    const allCities = await prisma.cityPinCode.findMany({
+      orderBy: { city: 'asc' }
+    });
+    
+    const pinCodeStats = allCities.map(record => ({
+      city: record.city,
+      count: record.pinCodes.length,
+      sample: record.pinCodes.slice(0, 3).join(', ') + (record.pinCodes.length > 3 ? '...' : ''),
+      source: record.source,
+      lastUpdated: record.updatedAt,
+      inMemoryCache: pinCodeCache.has(record.city)
+    }));
+    
+    // Count by source
+    const staticCount = allCities.filter(c => c.source === 'static').length;
+    const dynamicCount = allCities.filter(c => c.source === 'dynamic').length;
+    
+    // Memory cache stats
+    const memoryCachedCities = Array.from(pinCodeCache.keys());
+    
+    res.json({
+      success: true,
+      totalCities: allCities.length,
+      staticCities: staticCount,
+      dynamicCities: dynamicCount,
+      memoryCache: {
+        size: pinCodeCache.size,
+        maxSize: MAX_PINCODE_CACHE_SIZE,
+        ttl: `${PINCODE_CACHE_TTL / (60 * 60 * 1000)} hours`,
+        cities: memoryCachedCities
+      },
+      cities: pinCodeStats,
+      message: "3-tier caching: Memory (instant) → Database (fast) → Gemini API (first time only)"
+    });
+  } catch (error) {
+    console.error("Error fetching pin codes:", error);
+    res.status(500).json({ 
+      success: false, 
+      error: "Failed to fetch pin codes",
+      details: error.message
+    });
   }
 });
 
@@ -818,36 +1128,40 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
       const searchQuery = ownerName
         ? `owner_${ownerName}_${location}`
         : `${businessType}_${location}`;
-      
+
       const previousLeads = await prisma.userLeadHistory.findMany({
         where: {
           userId: req.user.id,
-          leadType: 'business',
+          leadType: "business",
           searchQuery: {
-            contains: ownerName ? `owner_${ownerName}` : businessType
-          }
+            contains: ownerName ? `owner_${ownerName}` : businessType,
+          },
         },
         select: {
-          leadIdentifier: true
-        }
+          leadIdentifier: true,
+        },
       });
 
       // Extract business names from identifiers (format: business_{name}_{location}_{contact})
       excludeBusinessNames = previousLeads
-        .map(lead => {
-          const parts = lead.leadIdentifier.split('_');
+        .map((lead) => {
+          const parts = lead.leadIdentifier.split("_");
           // Skip first element ('business') and reconstruct name
           const nameEndIndex = parts.length - 2; // exclude location and contact
-          return parts.slice(1, nameEndIndex).join('_');
+          return parts.slice(1, nameEndIndex).join("_");
         })
-        .filter(name => name && name.length > 0);
+        .filter((name) => name && name.length > 0);
 
       if (excludeBusinessNames.length > 0) {
-        console.log(`📋 Found ${excludeBusinessNames.length} previously seen businesses to exclude`);
-        console.log(`Sample exclusions: ${excludeBusinessNames.slice(0, 3).join(', ')}`);
+        console.log(
+          `📋 Found ${excludeBusinessNames.length} previously seen businesses to exclude`
+        );
+        console.log(
+          `Sample exclusions: ${excludeBusinessNames.slice(0, 3).join(", ")}`
+        );
       }
     } catch (error) {
-      console.error('Failed to fetch previous businesses:', error);
+      console.error("Failed to fetch previous businesses:", error);
       // Continue without exclusions if query fails
     }
   }
@@ -863,30 +1177,58 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
+  // Create results cache key (needed for both checking and storing)
+  const resultsCacheKey = specificBusinessName
+    ? `results:business:specific:${specificBusinessName}:${location}`
+    : ownerName
+    ? `results:business:owner:${ownerName}:${location}:${requestedLeads}`
+    : `results:business:${businessType}:${location}:${requestedLeads}`;
+
+  console.log(`\n🔍 CACHE DEBUG:`);
+  console.log(`   Cache key: ${resultsCacheKey}`);
+  console.log(`   useCached param: ${req.query.useCached}`);
+  console.log(`   useCached boolean: ${req.query.useCached === "true"}`);
+  console.log(`   Total keys in resultsCache: ${resultsCache.size}`);
+  console.log(
+    `   Available cache keys: ${Array.from(resultsCache.keys()).join(", ")}`
+  );
+
+  // Check if complete cached results exist
+  const cachedResults = resultsCache.get(resultsCacheKey);
+  const hasCachedResults =
+    cachedResults && Date.now() - cachedResults.timestamp < RESULTS_CACHE_TTL;
+
+  console.log(`   Cache hit: ${!!cachedResults}`);
+  console.log(`   Cache valid: ${hasCachedResults}`);
+  if (cachedResults) {
+    console.log(
+      `   Cache age: ${Math.floor(
+        (Date.now() - cachedResults.timestamp) / 1000
+      )}s`
+    );
+    console.log(`   Cached items: ${cachedResults.data.length}`);
+  }
+
   // Check if user wants cached complete results
-  const useCached = req.query.useCached === 'true';
-  
+  const useCached = req.query.useCached === "true";
+
   if (useCached) {
-    // Create results cache key
-    const resultsCacheKey = specificBusinessName
-      ? `results:business:specific:${specificBusinessName}:${location}`
-      : ownerName
-      ? `results:business:owner:${ownerName}:${location}:${requestedLeads}`
-      : `results:business:${businessType}:${location}:${requestedLeads}`;
-    
-    const cachedResults = resultsCache.get(resultsCacheKey);
-    if (cachedResults && Date.now() - cachedResults.timestamp < RESULTS_CACHE_TTL) {
-      console.log(`⚡ Returning cached complete results (${cachedResults.data.length} leads)`);
+    if (hasCachedResults) {
+      console.log(
+        `⚡ Returning cached complete results (${cachedResults.data.length} leads)`
+      );
       sendUpdate({
         type: "complete",
         leads: cachedResults.data,
         total: cachedResults.data.length,
-        message: `Loaded ${cachedResults.data.length} cached results instantly`
+        message: `Loaded ${cachedResults.data.length} cached results instantly`,
       });
       res.end();
       return;
     } else {
-      console.log('❌ No cached results found, proceeding with fresh search...');
+      console.log(
+        "❌ No cached results found, proceeding with fresh search..."
+      );
     }
   }
 
@@ -913,11 +1255,32 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
 
     // Create different prompts based on search type
     let geminiPrompt;
+    
+    // Get pin codes for location (dynamically fetches if not in static data)
+    const locationPinCodes = await getPinCodesForLocation(location);
+    const pinCodeInfo = locationPinCodes 
+      ? `\n- Pin codes for ${location}: ${locationPinCodes}\n- Include pin codes in search queries for better accuracy`
+      : '';
+    
     if (specificBusinessName) {
       // Specific business search - just return the search query
       geminiPrompt = `You are a search query generator. Return ONLY valid JSON with a Google Maps search query and concise business description.
 
 Task: Generate ONE search query to find "${specificBusinessName}" in "${location}" on Google Maps.
+
+CRITICAL BUSINESS STATUS REQUIREMENTS:
+- The business MUST be currently active and operational
+- DO NOT suggest closed, defunct, or out-of-business establishments
+- DO NOT suggest historical businesses that no longer exist
+- Only suggest businesses that are currently operating as of 2025
+- If you're unsure about a business's current status, DO NOT include it
+
+CRITICAL LOCATION REQUIREMENTS:
+- The business MUST be physically located ONLY in ${location} - NO exceptions
+- DO NOT include businesses from nearby cities, suburbs, or surrounding areas
+- If ${location} is a city, ONLY that city - not the metro region or nearby towns
+- The business address must contain EXACTLY "${location}" in the city field
+- Search query must include exact location: "${location}"${pinCodeInfo}
 
 CRITICAL INSTRUCTIONS:
 - DO NOT make up or invent business names
@@ -940,13 +1303,37 @@ OUTPUT FORMAT:
 CRITICAL: Valid JSON only. No markdown, no explanations, no additional text.`;
     } else if (ownerName) {
       // Owner name search - use direct search approach
-      const exclusionList = excludeBusinessNames.length > 0 
-        ? `\n\n❌ EXCLUDE THESE BUSINESSES (already provided to user):\n${excludeBusinessNames.slice(0, 30).map(name => `- ${name}`).join('\n')}${excludeBusinessNames.length > 30 ? '\n...and ' + (excludeBusinessNames.length - 30) + ' more' : ''}`
-        : '';
-      
+      const exclusionList =
+        excludeBusinessNames.length > 0
+          ? `\n\n❌ EXCLUDE THESE BUSINESSES (already provided to user):\n${excludeBusinessNames
+              .slice(0, 30)
+              .map((name) => `- ${name}`)
+              .join("\n")}${
+              excludeBusinessNames.length > 30
+                ? "\n...and " + (excludeBusinessNames.length - 30) + " more"
+                : ""
+            }`
+          : "";
+
       geminiPrompt = `You are a search query generator. Return ONLY valid JSON with Google Maps search queries and concise descriptions.
 
 Task: Generate ${requestedLeads} search queries to find businesses potentially owned or founded by "${ownerName}" in "${location}".
+
+CRITICAL BUSINESS STATUS REQUIREMENTS:
+- ALL businesses MUST be currently active and operational in 2025
+- DO NOT suggest any closed, defunct, or out-of-business establishments
+- DO NOT suggest businesses that have shut down, relocated, or ceased operations
+- ONLY suggest businesses with confirmed recent activity or online presence
+- If unsure about a business's current operational status, DO NOT include it${pinCodeInfo}
+- Verify the business is still operating before including it
+
+CRITICAL LOCATION REQUIREMENTS:
+- Businesses MUST be physically located in ${location} ONLY - ZERO tolerance for nearby areas
+- DO NOT include businesses from nearby cities, suburbs, metropolitan areas, or neighboring regions
+- If ${location} is "Delhi", do NOT include Noida, Gurgaon, Faridabad, Ghaziabad, or any NCR cities
+- If ${location} is "Mumbai", do NOT include Navi Mumbai, Thane, Kalyan, or any other cities
+- The business address must contain EXACTLY "${location}" as the city name
+- Each search query MUST include the EXACT location: "${location}"
 
 CRITICAL INSTRUCTIONS:
 - ONLY suggest well-known, publicly documented businesses
@@ -975,13 +1362,41 @@ OUTPUT FORMAT:
 CRITICAL: Valid JSON only. If uncertain about any business, return fewer results or empty array. No markdown, no explanations.`;
     } else {
       // General business type search - generate search queries
-      const exclusionList = excludeBusinessNames.length > 0 
-        ? `\n\n❌ EXCLUDE THESE BUSINESSES (already provided to user):\n${excludeBusinessNames.slice(0, 30).map(name => `- ${name}`).join('\n')}${excludeBusinessNames.length > 30 ? '\n...and ' + (excludeBusinessNames.length - 30) + ' more' : ''}`
-        : '';
-      
+      const exclusionList =
+        excludeBusinessNames.length > 0
+          ? `\n\n❌ EXCLUDE THESE BUSINESSES (already provided to user):\n${excludeBusinessNames
+              .slice(0, 30)
+              .map((name) => `- ${name}`)
+              .join("\n")}${
+              excludeBusinessNames.length > 30
+                ? "\n...and " + (excludeBusinessNames.length - 30) + " more"
+                : ""
+            }`
+          : "";
+
       geminiPrompt = `You are a search query generator. Return ONLY valid JSON with Google Maps search queries and concise descriptions.
 
 Task: Generate ${requestedLeads} search queries to find well-established "${businessType}" businesses in "${location}".
+
+CRITICAL BUSINESS STATUS REQUIREMENTS:
+- ALL suggested businesses MUST be currently active and operational in 2025
+- DO NOT suggest any closed, defunct, bankrupt, or permanently shut down businesses
+- DO NOT suggest businesses that existed historically but no longer operate
+- ONLY suggest businesses with confirmed recent activity, online presence, or customer reviews
+- Verify each business is still operating before including it in results
+- If you have ANY doubt about a business's current operational status, DO NOT include it
+- Focus on well-established businesses with proven track records of continuous operation
+
+CRITICAL LOCATION REQUIREMENTS:
+- Businesses MUST be physically located in ${location} ONLY - ABSOLUTELY NO nearby areas
+- DO NOT include businesses from nearby cities, suburbs, metropolitan regions, or neighboring towns${pinCodeInfo}
+- ZERO tolerance for location variations:
+  * If searching "Delhi", EXCLUDE: Noida, Gurgaon, Faridabad, Ghaziabad, Greater Noida, and ALL NCR cities
+  * If searching "Mumbai", EXCLUDE: Navi Mumbai, Thane, Kalyan, Panvel, Vasai, and ALL MMR cities
+  * If searching "Bangalore", EXCLUDE: Whitefield, Electronic City if they're listed as separate cities
+- The business address must list ${location} EXACTLY as the city - not as part of a region
+- Each search query MUST include the EXACT location: "${location}"
+- When generating search queries, add city-specific identifiers (e.g., "in Delhi city", "central Mumbai")
 
 CRITICAL INSTRUCTIONS:
 - ONLY suggest real, well-known, established businesses in ${location}
@@ -1012,6 +1427,14 @@ OUTPUT FORMAT:
 CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exist. No markdown, no explanations, no hallucinations.`;
     }
 
+    // Log pin code info if available
+    if (locationPinCodes) {
+      console.log(`📍 Pin codes for ${location}: ${locationPinCodes}`);
+      console.log(`   ℹ️ Pin codes added to Gemini prompt for better location accuracy`);
+    } else {
+      console.log(`ℹ️ No pin codes available for "${location}" - using location name only`);
+    }
+
     sendUpdate({
       type: "progress",
       leads: [],
@@ -1032,26 +1455,36 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
       : `business:${businessType}:${location}:${requestedLeads}`;
 
     // Check if user explicitly wants cached results
-    const useCached = req.query.useCached === 'true';
+    const useCached = req.query.useCached === "true";
 
     // Use cached response or fetch from Gemini
     const geminiResult = await getCachedGeminiResponse(cacheKey, async () => {
       return await model.generateContent(geminiPrompt);
     });
 
-    // If cache hit and user hasn't chosen yet, ask them
-    if (geminiResult.cacheHit && !useCached && req.query.useCached !== 'false') {
-      console.log('🔔 Business search: Cache hit detected, asking user for choice...');
+    // If cache hit and user hasn't chosen yet, AND we have complete cached results, ask them
+    if (
+      geminiResult.cacheHit &&
+      hasCachedResults &&
+      !useCached &&
+      req.query.useCached !== "false"
+    ) {
+      console.log(
+        "🔔 Business search: Cache hit detected with complete results available, asking user for choice..."
+      );
       sendUpdate({
-        type: 'cache-available',
-        message: 'You searched for this recently. Would you like cached results (instant) or fresh results (with deduplication)?'
+        type: "cache-available",
+        message:
+          "You searched for this recently. Would you like cached results (instant) or fresh results (with deduplication)?",
       });
       res.end();
       return;
     }
 
-    console.log(`📊 Business search: Processing with useCached=${useCached}, cacheHit=${geminiResult.cacheHit}`);
-    
+    console.log(
+      `📊 Business search: Processing with useCached=${useCached}, cacheHit=${geminiResult.cacheHit}`
+    );
+
     const geminiResponse = await geminiResult.data.response;
     let geminiText = geminiResponse.text().trim();
 
@@ -1100,7 +1533,7 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
 
     const enrichedBusinesses = [];
     const seenBusinesses = new Set(); // Track duplicates in current search
-    
+
     // Fetch user's previous business identifiers for deduplication (skip if using cached results)
     let previousBusinessIdentifiers = new Set();
     if (req.user?.id && !specificBusinessName && !useCached) {
@@ -1108,24 +1541,31 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
         const searchQuery = ownerName
           ? `owner_${ownerName}_${location}`
           : `${businessType}_${location}`;
-        
+
         const previousLeads = await prisma.userLeadHistory.findMany({
           where: {
             userId: req.user.id,
-            leadType: 'business',
+            leadType: "business",
             searchQuery: {
-              contains: ownerName ? `owner_${ownerName}` : businessType
-            }
+              contains: ownerName ? `owner_${ownerName}` : businessType,
+            },
           },
           select: {
-            leadIdentifier: true
-          }
+            leadIdentifier: true,
+          },
         });
 
-        previousBusinessIdentifiers = new Set(previousLeads.map(l => l.leadIdentifier));
-        console.log(`📋 Loaded ${previousBusinessIdentifiers.size} previous business identifiers for real-time deduplication`);
+        previousBusinessIdentifiers = new Set(
+          previousLeads.map((l) => l.leadIdentifier)
+        );
+        console.log(
+          `📋 Loaded ${previousBusinessIdentifiers.size} previous business identifiers for real-time deduplication`
+        );
       } catch (error) {
-        console.error('Failed to load previous businesses for deduplication:', error);
+        console.error(
+          "Failed to load previous businesses for deduplication:",
+          error
+        );
       }
     }
 
@@ -1139,18 +1579,24 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
       try {
         // Search for business details using Serper Maps API
         // Note: This returns multiple results in ONE API call
+        const requestPayload = {
+          q: searchQuery,
+          gl: "in",
+          hl: "en",
+          num: 1 // Request only 1 result per query
+        };
+        
+        console.log(`   📡 Calling Serper API with payload:`, JSON.stringify(requestPayload));
+        
         const serperResponse = await axios.post(
           "https://google.serper.dev/maps",
-          {
-            q: searchQuery,
-            gl: "in",
-            hl: "en",
-          },
+          requestPayload,
           {
             headers: {
               "X-API-KEY": SERPER_API_KEY,
               "Content-Type": "application/json",
             },
+            timeout: 10000 // 10 second timeout
           }
         );
 
@@ -1222,10 +1668,90 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
         console.log(`   Address: ${businessAddress}`);
         console.log(`   Phone: ${businessPhone || "Not available"}`);
 
+        // APOLLO.IO-STYLE LOCATION FILTERING
+        // Parse address into structured components for precise matching
+        const addressParts = businessAddress.split(",").map((p) => p.trim());
+        const searchLocationLower = location.toLowerCase().trim();
+
+        // Extract city from address (typically 3rd from end, before state and country)
+        let addressCity = null;
+        if (addressParts.length >= 3) {
+          // Get potential city (3rd from end)
+          let potentialCity = addressParts[addressParts.length - 3];
+
+          // Clean city name - remove postal codes and street indicators
+          if (
+            !/\d{5,6}/.test(potentialCity) &&
+            !/^\d+/.test(potentialCity) &&
+            !/\b(Rd|Road|St|Street|Ave|Avenue|Lane|Drive|Block|Sector)\b/i.test(
+              potentialCity
+            )
+          ) {
+            addressCity = potentialCity.toLowerCase().trim();
+          } else {
+            // Try previous parts if current has postal code
+            for (let i = addressParts.length - 4; i >= 0; i--) {
+              const part = addressParts[i];
+              if (
+                !/\d{5,6}/.test(part) &&
+                !/^\d+/.test(part) &&
+                !/\b(Rd|Road|St|Street|Ave|Avenue|Lane|Drive|Block|Sector)\b/i.test(
+                  part
+                )
+              ) {
+                addressCity = part.toLowerCase().trim();
+                break;
+              }
+            }
+          }
+        }
+
+        // STRICT Location matching logic - ONLY exact matches
+        let locationMatch = false;
+        let matchReason = "";
+
+        if (addressCity) {
+          // ONLY exact city name match (case-insensitive)
+          if (addressCity === searchLocationLower) {
+            locationMatch = true;
+            matchReason = "Exact city match";
+          }
+          // Check if any word in the city name exactly matches
+          else {
+            const cityWords = addressCity.split(/[\s-]+/);
+            const searchWords = searchLocationLower.split(/[\s-]+/);
+
+            // All search words must appear in city words
+            const allWordsMatch = searchWords.every((searchWord) =>
+              cityWords.some((cityWord) => cityWord === searchWord)
+            );
+
+            if (allWordsMatch && cityWords.length === searchWords.length) {
+              locationMatch = true;
+              matchReason = "All words match exactly";
+            }
+          }
+        }
+
+        // NO fallback - if city extraction failed or doesn't match, reject
+
+        // Filter out if no match
+        if (!locationMatch) {
+          console.log(`⚠️ LOCATION FILTER: Business NOT in "${location}"`);
+          console.log(`   Address: "${businessAddress}"`);
+          console.log(`   Extracted city: "${addressCity || "N/A"}"`);
+          console.log(`   Skipping - location mismatch`);
+          continue;
+        }
+
+        console.log(
+          `✅ Location verified: ${matchReason} - "${addressCity || location}"`
+        );
+
         // Extract detailed location (city, state, country) - only these 3 components
         let detailedLocation = location; // Default to search location
         if (businessAddress) {
-          // Try to extract city, state, country from address
+          // Re-parse for display purposes
           const addressParts = businessAddress.split(",").map((p) => p.trim());
 
           if (addressParts.length >= 3) {
@@ -1256,27 +1782,43 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
             // Final validation - if city still has numbers/postal codes, skip it
             if (!/\d{5,6}/.test(city) && !/^\d+/.test(city)) {
               detailedLocation = `${city}, ${state}, ${country}`;
+              extractedCity = city;
             } else {
               detailedLocation = `${state}, ${country}`;
+              extractedCity = state; // Use state as fallback
             }
           } else if (addressParts.length === 2) {
             // Only state/city and country available
             const country = addressParts[addressParts.length - 1];
             const stateOrCity = addressParts[0];
             detailedLocation = `${stateOrCity}, ${country}`;
+            extractedCity = stateOrCity;
           }
         }
 
-        // Use ONLY verified Google Maps data
+        // Prepare phone number with source label
+        let finalPhone = "-";
+        if (businessPhone) {
+          // Prioritize Serper/Google Maps phone
+          finalPhone = businessPhone;
+          console.log(`   📞 Phone from Google Maps: ${businessPhone}`);
+        } else {
+          console.log(`   ℹ️ No phone number available from Google Maps`);
+        }
+        
+        // DISABLED: Website phone extraction to conserve Gemini API quota
+        // The free tier has only 20 requests per day, and each phone extraction uses 1 call
+        // This adds up quickly when searching for multiple businesses
+
+        // Use verified data from Google Maps + Gemini
         const enrichedBusiness = {
           name: businessName,
           address: businessAddress,
-          phone: businessPhone || "-",
+          phone: finalPhone,
           email: "-", // Google Maps doesn't provide email
           website: place.website || "-",
           rating: place.rating?.toString() || "-",
           totalRatings: reviewCount,
-          ownerName: "-", // Google Maps doesn't provide owner info
           googleMapsLink:
             place.link ||
             `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
@@ -1293,39 +1835,46 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
           category: place.category || businessType || "-",
           location: detailedLocation,
           searchDate: new Date().toISOString(),
-          lastReview: "-", // Google Maps doesn't provide review dates in this format
         };
 
         // Check if this business was already provided to user (real-time deduplication)
         // Skip deduplication if using cached results
-        const leadIdentifier = `business_${businessName.toLowerCase().trim()}_${detailedLocation.toLowerCase().trim()}_${businessPhone !== '-' ? businessPhone : place.link}`;
-        
+        const leadIdentifier = `business_${businessName
+          .toLowerCase()
+          .trim()}_${detailedLocation.toLowerCase().trim()}_${
+          businessPhone !== "-" ? businessPhone : place.link
+        }`;
+
         if (!useCached && previousBusinessIdentifiers.has(leadIdentifier)) {
-          console.log(`⚠️ Skipping duplicate business (already in user history): ${businessName}`);
+          console.log(
+            `⚠️ Skipping duplicate business (already in user history): ${businessName}`
+          );
           continue;
         }
 
         enrichedBusinesses.push(enrichedBusiness);
-        
+
         // Save to database immediately (non-blocking) - skip if using cached results
         if (req.user?.id && !useCached) {
-          prisma.userLeadHistory.create({
-            data: {
-              userId: req.user.id,
-              leadIdentifier: leadIdentifier,
-              searchQuery: specificBusinessName 
-                ? `specific_${specificBusinessName}_${location}`
-                : ownerName
-                ? `owner_${ownerName}_${location}`
-                : `${businessType}_${location}`,
-              leadType: 'business'
-            }
-          }).catch(err => {
-            // Silently ignore unique constraint errors (P2002)
-            if (err.code !== 'P2002') {
-              console.error('Failed to save lead to history:', err);
-            }
-          });
+          prisma.userLeadHistory
+            .create({
+              data: {
+                userId: req.user.id,
+                leadIdentifier: leadIdentifier,
+                searchQuery: specificBusinessName
+                  ? `specific_${specificBusinessName}_${location}`
+                  : ownerName
+                  ? `owner_${ownerName}_${location}`
+                  : `${businessType}_${location}`,
+                leadType: "business",
+              },
+            })
+            .catch((err) => {
+              // Silently ignore unique constraint errors (P2002)
+              if (err.code !== "P2002") {
+                console.error("Failed to save lead to history:", err);
+              }
+            });
         }
 
         // Send progressive update
@@ -1350,48 +1899,30 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
           `Serper API error for query "${searchQuery}":`,
           serperError.message
         );
-
-        // Send basic info if Serper fails
-        const fallbackAddress = basicBusiness.address || "-";
-        const fallbackBusiness = {
-          name: basicBusiness.name,
-          address: fallbackAddress,
-          phone: basicBusiness.phone || "-",
-          email: basicBusiness.email || "-",
-          website: "-",
-          rating: "-",
-          totalRatings: "-",
-          ownerName:
-            basicBusiness.ownerName && basicBusiness.ownerName !== "N/A"
-              ? basicBusiness.ownerName
-              : "-",
-          googleMapsLink:
-            fallbackAddress !== "-"
-              ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                  basicBusiness.name + " " + fallbackAddress
-                )}`
-              : "-",
-          instagram: "-",
-          facebook: "-",
-          description: businessType,
-          category: businessType,
-          location: location,
-          searchDate: new Date().toISOString(),
-          lastReview: "-",
-        };
-
-        enrichedBusinesses.push(fallbackBusiness);
-
-        // Send progressive update
-        sendUpdate({
-          type: "progress",
-          leads: enrichedBusinesses,
-          total: enrichedBusinesses.length,
-          page: i + 1,
-          message: `Processing ${i + 1}/${
-            basicBusinesses.length
-          } businesses...`,
-        });
+        
+        // Log detailed error for debugging
+        if (serperError.response) {
+          console.error(`   ❌ Status Code: ${serperError.response.status}`);
+          console.error(`   ❌ Response Data:`, JSON.stringify(serperError.response.data));
+          console.error(`   ❌ Response Headers:`, JSON.stringify(serperError.response.headers));
+          
+          if (serperError.response.status === 400) {
+            console.error(`   ⚠️ Bad request - invalid query format or parameters`);
+            console.error(`   Query: "${searchQuery}"`);
+          } else if (serperError.response.status === 429) {
+            console.error(`   ⚠️ Rate limit exceeded - too many requests`);
+          } else if (serperError.response.status === 401 || serperError.response.status === 403) {
+            console.error(`   ⚠️ Authentication failed - check Serper API key`);
+            console.error(`   ⚠️ API Key (first 10 chars): ${SERPER_API_KEY?.substring(0, 10)}...`);
+          }
+        } else {
+          console.error(`   ❌ No response from server - network or timeout issue`);
+          console.error(`   ❌ Error details:`, serperError.code, serperError.errno);
+        }
+        
+        // Skip this query and continue with next one
+        console.log(`   Skipping query and continuing with next business...`);
+        continue;
       }
     }
 
@@ -1426,13 +1957,16 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
         : ownerName
         ? `results:business:owner:${ownerName}:${location}:${requestedLeads}`
         : `results:business:${businessType}:${location}:${requestedLeads}`;
-      
+
       resultsCache.set(resultsCacheKey, {
         data: enrichedBusinesses,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
-      console.log(`💾 Cached ${enrichedBusinesses.length} complete results for instant retrieval`);
-      
+      console.log(
+        `💾 Cached ${enrichedBusinesses.length} complete results for instant retrieval`
+      );
+      console.log(`   Cached under key: "${resultsCacheKey}"`);
+
       // Clean old results cache if needed
       if (resultsCache.size > MAX_RESULTS_CACHE_SIZE) {
         const entriesToRemove = Math.floor(MAX_RESULTS_CACHE_SIZE * 0.2);

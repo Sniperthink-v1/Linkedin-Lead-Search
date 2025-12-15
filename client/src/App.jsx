@@ -195,11 +195,9 @@ function App() {
         Address: lead.address || "-",
         Phone: lead.phone || "-",
         Email: lead.email || "-",
-        Owner: lead.ownerName || "-",
         Website: lead.website || "-",
         Rating: lead.rating || "-",
         "Total Ratings": lead.totalRatings || "-",
-        "Last Review": lead.lastReview || "-",
         "Search Date": lead.searchDate
           ? new Date(lead.searchDate).toLocaleDateString()
           : "-",
@@ -273,16 +271,18 @@ function App() {
       return;
     }
 
-    // Check rate limiting
-    const now = Date.now();
-    const timeSinceLastSearch = now - lastSearchTime;
-    if (timeSinceLastSearch < SEARCH_COOLDOWN_MS) {
-      const remainingSeconds = Math.ceil(
-        (SEARCH_COOLDOWN_MS - timeSinceLastSearch) / 1000
-      );
-      setError("");
-      setSearchCooldown(remainingSeconds);
-      return;
+    // Check rate limiting (skip for cached results)
+    if (useCached === null) {
+      const now = Date.now();
+      const timeSinceLastSearch = now - lastSearchTime;
+      if (timeSinceLastSearch < SEARCH_COOLDOWN_MS) {
+        const remainingSeconds = Math.ceil(
+          (SEARCH_COOLDOWN_MS - timeSinceLastSearch) / 1000
+        );
+        setError("");
+        setSearchCooldown(remainingSeconds);
+        return;
+      }
     }
 
     setLoading(true);
@@ -355,8 +355,8 @@ function App() {
       return;
     }
 
-    // Check rate limiting (skip for load more)
-    if (!isLoadMore) {
+    // Check rate limiting (skip for load more and cached results)
+    if (!isLoadMore && useCached === null) {
       const now = Date.now();
       const timeSinceLastSearch = now - lastSearchTime;
       if (timeSinceLastSearch < SEARCH_COOLDOWN_MS) {
@@ -384,11 +384,13 @@ function App() {
 
     try {
       // Use EventSource for Server-Sent Events (SSE) to receive streaming results
+      console.log(`📡 Building business search params with useCached=${useCached}`);
       const params = new URLSearchParams({
         ...formData,
         leadCount: formData.leadCount || 20,
         ...(useCached !== null && { useCached: useCached.toString() })
       }).toString();
+      console.log(`📡 Final URL params: ${params}`);
       const token = localStorage.getItem("authToken");
       const eventSource = new EventSource(
         `${API_URL}/api/search/business?${params}&token=${token}`
@@ -471,11 +473,16 @@ function App() {
   };
 
   const handleCachedChoice = (useCached) => {
+    console.log(`🎯 User chose cached: ${useCached}`);
+    console.log(`   Active tab: ${activeTab}`);
+    console.log(`   Pending params:`, pendingSearchParams);
     setShowCacheDialog(false);
     if (pendingSearchParams) {
       if (activeTab === "business") {
+        console.log(`   Calling handleBusinessSearch with useCached=${useCached}`);
         handleBusinessSearch(pendingSearchParams, false, useCached);
       } else {
+        console.log(`   Calling handleSearch with useCached=${useCached}`);
         handleSearch(pendingSearchParams, useCached);
       }
       setPendingSearchParams(null);
@@ -838,16 +845,10 @@ function App() {
                       Contact
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
-                      Owner
-                    </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                       Website
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                       Rating
-                    </th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
-                      Last Review
                     </th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-400">
                       Search Date
@@ -896,9 +897,6 @@ function App() {
                           )}
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-gray-400">
-                        {lead.ownerName || "-"}
-                      </td>
                       <td className="px-6 py-4">
                         {lead.website && lead.website !== "-" ? (
                           <div className="flex items-center gap-2">
@@ -936,9 +934,6 @@ function App() {
                         ) : (
                           "-"
                         )}
-                      </td>
-                      <td className="px-6 py-4 text-gray-400 text-sm">
-                        {lead.lastReview || "-"}
                       </td>
                       <td className="px-6 py-4 text-gray-400 text-sm">
                         {lead.searchDate

@@ -118,3 +118,15 @@ model UserLeadHistory {
   @@index([userId, leadIdentifier])
   @@index([createdAt])
 }
+
+// City pin codes - scalable storage for location-based searches
+model CityPinCode {
+  id        String   @id @default(uuid())
+  city      String   @unique // City name in lowercase
+  pinCodes  String[] // Array of pin codes (6-digit postal codes)
+  source    String   @default("static") // "static" or "dynamic" (from Gemini)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([city])
+}
