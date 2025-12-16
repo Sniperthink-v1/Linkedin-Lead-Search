@@ -7,6 +7,11 @@ import {
   Users,
   Building2,
   User,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Mail,
+  MapPin,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -17,6 +22,11 @@ function SavedLeads({ onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState("all"); // 'all', 'people', 'business'
+  const [sortBy, setSortBy] = useState("date-desc"); // 'date-desc', 'date-asc', 'name-asc', 'name-desc', 'rating-desc', 'rating-asc'
+  const [categoryFilter, setCategoryFilter] = useState("all"); // 'all' or specific category
+  const [cityFilter, setCityFilter] = useState("all"); // 'all' or specific city
+  const [stateFilter, setStateFilter] = useState("all"); // 'all' or specific state
+  const [countryFilter, setCountryFilter] = useState("all"); // 'all' or specific country
 
   useEffect(() => {
     fetchSavedLeads();
@@ -88,6 +98,8 @@ function SavedLeads({ onClose }) {
         Name: l.personName,
         "Job Title": l.jobTitle || "-",
         Company: l.company || "-",
+        Email: l.email || "-",
+        Location: l.location || "-",
         Link: l.profileLink,
         "Saved Date": new Date(l.savedAt).toLocaleDateString(),
       }));
@@ -96,6 +108,7 @@ function SavedLeads({ onClose }) {
       .filter((l) => l.leadType === "business")
       .map((l) => ({
         "Business Name": l.businessName,
+        Category: l.category || "-",
         Address: l.address || "-",
         Phone: l.phone || "-",
         Email: l.email || "-",
@@ -122,16 +135,165 @@ function SavedLeads({ onClose }) {
       XLSX.utils.book_append_sheet(workbook, worksheet, "Business Leads");
     }
 
-    const timestamp = new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .slice(0, -5);
-    XLSX.writeFile(workbook, `saved_leads_${timestamp}.xlsx`);
+    // Generate date string for filename (YYYY-MM-DD format)
+    const dateStr = new Date().toISOString().split('T')[0];
+    
+    // Determine lead type for filename
+    let leadType = "savedleads";
+    if (filter === "people") {
+      leadType = "people";
+    } else if (filter === "business") {
+      leadType = "business";
+    } else if (peopleLeads.length > 0 && businessLeads.length === 0) {
+      leadType = "people";
+    } else if (businessLeads.length > 0 && peopleLeads.length === 0) {
+      leadType = "business";
+    }
+    
+    // Build descriptive parts for filename
+    const cleanString = (str) => {
+      return str
+        .toString()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 30);
+    };
+    
+    // Get category/type info
+    let typeInfo = "all";
+    if (categoryFilter !== "all") {
+      typeInfo = cleanString(categoryFilter);
+    } else if (filter !== "all") {
+      typeInfo = filter;
+    }
+    
+    // Get location info
+    let locationInfo = "all";
+    if (cityFilter !== "all") {
+      locationInfo = cleanString(cityFilter);
+    } else if (stateFilter !== "all") {
+      locationInfo = cleanString(stateFilter);
+    } else if (countryFilter !== "all") {
+      locationInfo = cleanString(countryFilter);
+    }
+    
+    const filename = `${leadType}_${dateStr}_${typeInfo}_${locationInfo}`;
+    XLSX.writeFile(workbook, `${filename}.xlsx`);
   };
 
-  const getFilteredLeads = () => {
-    if (filter === "all") return savedLeads;
-    return savedLeads.filter((lead) => lead.leadType === filter);
+  // Helper function to parse location
+  const parseLocation = (locationStr) => {
+    if (!locationStr || locationStr === "-") return { city: "", state: "", country: "" };
+    
+    const parts = locationStr.split(",").map(p => p.trim());
+    
+    if (parts.length === 3) {
+      return { city: parts[0], state: parts[1], country: parts[2] };
+    } else if (parts.length === 2) {
+      return { city: parts[0], state: "", country: parts[1] };
+    } else if (parts.length === 1) {
+      return { city: parts[0], state: "", country: "" };
+    }
+    
+    return { city: locationStr, state: "", country: "" };
+  };
+
+  const getFilteredAndSortedLeads = () => {
+    // First filter by type
+    let filtered = filter === "all" ? savedLeads : savedLeads.filter((lead) => lead.leadType === filter);
+    
+    // Then filter by category (for business leads)
+    if (categoryFilter !== "all" && (filter === "business" || filter === "all")) {
+      filtered = filtered.filter((lead) => 
+        lead.leadType === "business" && lead.category === categoryFilter
+      );
+    }
+    
+    // Filter by city
+    if (cityFilter !== "all") {
+      filtered = filtered.filter((lead) => {
+        const location = parseLocation(lead.location);
+        return location.city === cityFilter;
+      });
+    }
+    
+    // Filter by state
+    if (stateFilter !== "all") {
+      filtered = filtered.filter((lead) => {
+        const location = parseLocation(lead.location);
+        return location.state === stateFilter;
+      });
+    }
+    
+    // Filter by country
+    if (countryFilter !== "all") {
+      filtered = filtered.filter((lead) => {
+        const location = parseLocation(lead.location);
+        return location.country === countryFilter;
+      });
+    }
+    
+    // Then sort
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case "date-desc":
+          return new Date(b.savedAt) - new Date(a.savedAt);
+        case "date-asc":
+          return new Date(a.savedAt) - new Date(b.savedAt);
+        case "name-asc":
+          const nameA = (a.personName || a.businessName || "").toLowerCase();
+          const nameB = (b.personName || b.businessName || "").toLowerCase();
+          return nameA.localeCompare(nameB);
+        case "name-desc":
+          const nameA2 = (a.personName || a.businessName || "").toLowerCase();
+          const nameB2 = (b.personName || b.businessName || "").toLowerCase();
+          return nameB2.localeCompare(nameA2);
+        case "rating-desc":
+          // For business leads only, put nulls at the end
+          const ratingA = a.rating || 0;
+          const ratingB = b.rating || 0;
+          return ratingB - ratingA;
+        case "rating-asc":
+          const ratingA2 = a.rating || 0;
+          const ratingB2 = b.rating || 0;
+          return ratingA2 - ratingB2;
+        default:
+          return 0;
+      }
+    });
+    
+    return sorted;
+  };
+
+  // Get unique cities from all leads
+  const getUniqueCities = () => {
+    const cities = new Set();
+    savedLeads.forEach((lead) => {
+      const location = parseLocation(lead.location);
+      if (location.city) cities.add(location.city);
+    });
+    return Array.from(cities).sort();
+  };
+
+  // Get unique states from all leads
+  const getUniqueStates = () => {
+    const states = new Set();
+    savedLeads.forEach((lead) => {
+      const location = parseLocation(lead.location);
+      if (location.state) states.add(location.state);
+    });
+    return Array.from(states).sort();
+  };
+
+  // Get unique countries from all leads
+  const getUniqueCountries = () => {
+    const countries = new Set();
+    savedLeads.forEach((lead) => {
+      const location = parseLocation(lead.location);
+      if (location.country) countries.add(location.country);
+    });
+    return Array.from(countries).sort();
   };
 
   const formatDate = (dateString) => {
@@ -143,7 +305,28 @@ function SavedLeads({ onClose }) {
     });
   };
 
-  const filteredLeads = getFilteredLeads();
+  const formatDateTime = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  // Get unique business categories for filter dropdown
+  const getBusinessCategories = () => {
+    const categories = new Set();
+    savedLeads
+      .filter((lead) => lead.leadType === "business" && lead.category && lead.category !== "-")
+      .forEach((lead) => categories.add(lead.category));
+    return Array.from(categories).sort();
+  };
+
+  const filteredLeads = getFilteredAndSortedLeads();
+  const businessCategories = getBusinessCategories();
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -219,6 +402,123 @@ function SavedLeads({ onClose }) {
               {savedLeads.filter((l) => l.leadType === "business").length})
             </button>
           </div>
+
+          {/* Sort Options and Category Filter */}
+          {filteredLeads.length > 0 && (
+            <div className="mt-4 flex items-center gap-4 flex-wrap">
+              {/* Sort Dropdown */}
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 text-sm flex items-center gap-2">
+                  <ArrowUpDown className="w-4 h-4" />
+                  Sort by:
+                </span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="bg-darker border border-gray-700 text-gray-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary transition-colors"
+                >
+                  <option value="date-desc">Date (Newest First)</option>
+                  <option value="date-asc">Date (Oldest First)</option>
+                  <option value="name-asc">Name (A-Z)</option>
+                  <option value="name-desc">Name (Z-A)</option>
+                  {filter === "business" && (
+                    <>
+                      <option value="rating-desc">Rating (High to Low)</option>
+                      <option value="rating-asc">Rating (Low to High)</option>
+                    </>
+                  )}
+                  {filter === "all" && (
+                    <>
+                      <option value="rating-desc">Rating (High to Low)</option>
+                      <option value="rating-asc">Rating (Low to High)</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              {/* Category Filter - Show only for business tab or all tab with business leads */}
+              {(filter === "business" || filter === "all") && businessCategories.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-sm flex items-center gap-2">
+                    <Building2 className="w-4 h-4" />
+                    Category:
+                  </span>
+                  <select
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="bg-darker border border-gray-700 text-gray-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary transition-colors"
+                  >
+                    <option value="all">All Categories</option>
+                    {businessCategories.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* City Filter */}
+              {getUniqueCities().length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-sm flex items-center gap-2">
+                    <MapPin className="w-4 h-4" />
+                    City:
+                  </span>
+                  <select
+                    value={cityFilter}
+                    onChange={(e) => setCityFilter(e.target.value)}
+                    className="bg-darker border border-gray-700 text-gray-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary transition-colors"
+                  >
+                    <option value="all">All Cities</option>
+                    {getUniqueCities().map((city) => (
+                      <option key={city} value={city}>
+                        {city}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* State Filter */}
+              {getUniqueStates().length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-sm">State:</span>
+                  <select
+                    value={stateFilter}
+                    onChange={(e) => setStateFilter(e.target.value)}
+                    className="bg-darker border border-gray-700 text-gray-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary transition-colors"
+                  >
+                    <option value="all">All States</option>
+                    {getUniqueStates().map((state) => (
+                      <option key={state} value={state}>
+                        {state}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Country Filter */}
+              {getUniqueCountries().length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-sm">Country:</span>
+                  <select
+                    value={countryFilter}
+                    onChange={(e) => setCountryFilter(e.target.value)}
+                    className="bg-darker border border-gray-700 text-gray-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary transition-colors"
+                  >
+                    <option value="all">All Countries</option>
+                    {getUniqueCountries().map((country) => (
+                      <option key={country} value={country}>
+                        {country}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Content */}
@@ -256,9 +556,17 @@ function SavedLeads({ onClose }) {
                           <User className="w-6 h-6" />
                         </div>
                         <div className="flex-1">
-                          <h3 className="text-white font-medium text-lg">
-                            {lead.personName}
-                          </h3>
+                          <div className="flex items-start justify-between">
+                            <h3 className="text-white font-medium text-lg">
+                              {lead.personName}
+                            </h3>
+                            <div className="text-right ml-4">
+                              <div className="text-xs text-gray-400">Saved on</div>
+                              <div className="text-sm text-gray-300 font-medium">
+                                {formatDate(lead.savedAt)}
+                              </div>
+                            </div>
+                          </div>
                           <p className="text-gray-400 text-sm mt-1">
                             {lead.jobTitle || "No title"}
                           </p>
@@ -266,6 +574,16 @@ function SavedLeads({ onClose }) {
                             <p className="text-gray-500 text-sm">
                               {lead.company}
                             </p>
+                          )}
+                          {lead.email && (
+                            <a
+                              href={`mailto:${lead.email}`}
+                              className="text-gray-500 hover:text-primary text-sm flex items-center gap-1 mt-1"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Mail className="w-3 h-3" />
+                              {lead.email}
+                            </a>
                           )}
                           <div className="flex items-center gap-4 mt-2">
                             <a
@@ -277,9 +595,6 @@ function SavedLeads({ onClose }) {
                               <ExternalLink className="w-3 h-3" />
                               View Profile
                             </a>
-                            <span className="text-xs text-gray-500">
-                              Saved {formatDate(lead.savedAt)}
-                            </span>
                           </div>
                         </div>
                       </div>
@@ -294,9 +609,24 @@ function SavedLeads({ onClose }) {
                   ) : (
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
-                        <h3 className="text-white font-medium text-lg">
-                          {lead.businessName}
-                        </h3>
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h3 className="text-white font-medium text-lg">
+                              {lead.businessName}
+                            </h3>
+                            {lead.category && lead.category !== "-" && (
+                              <span className="inline-block mt-1 px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-xs rounded-full">
+                                {lead.category}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-right ml-4">
+                            <div className="text-xs text-gray-400">Saved on</div>
+                            <div className="text-sm text-gray-300 font-medium">
+                              {formatDate(lead.savedAt)}
+                            </div>
+                          </div>
+                        </div>
                         <div className="grid grid-cols-2 gap-x-6 gap-y-1 mt-2 text-sm">
                           {lead.address && lead.address !== "-" && (
                             <p className="text-gray-400">📍 {lead.address}</p>
@@ -330,9 +660,6 @@ function SavedLeads({ onClose }) {
                             <ExternalLink className="w-3 h-3" />
                             View on Maps
                           </a>
-                          <span className="text-xs text-gray-500">
-                            Saved {formatDate(lead.savedAt)}
-                          </span>
                         </div>
                       </div>
                       <button

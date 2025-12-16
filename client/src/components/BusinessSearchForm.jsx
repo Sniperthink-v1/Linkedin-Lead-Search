@@ -70,7 +70,7 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
           />
           <input
             type="text"
-            placeholder="Location (e.g., Delhi, Mumbai)"
+            placeholder="Location (e.g., Delhi, Karnataka, India)"
             className="bg-darker border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
             value={quickLocation}
             onChange={(e) => setQuickLocation(e.target.value)}
@@ -132,7 +132,7 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
           />
           <input
             type="text"
-            placeholder="Location (e.g., Delhi, Mumbai)"
+            placeholder="Location (e.g., Delhi, Karnataka, India)"
             className="bg-darker border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
             value={ownerLocation}
             onChange={(e) => setOwnerLocation(e.target.value)}
@@ -204,7 +204,7 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
             </label>
             <input
               type="text"
-              placeholder="e.g. Delhi, Mumbai, Bangalore"
+              placeholder="e.g. Delhi, Mumbai, Karnataka, India"
               className="w-full bg-darker border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
               value={formData.location}
               onChange={(e) =>
@@ -212,6 +212,7 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
               }
               required
             />
+            <p className="text-xs text-gray-500 mt-1">City, State, or Country</p>
           </div>
           <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-medium text-gray-400">

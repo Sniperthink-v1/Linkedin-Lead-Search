@@ -1,5 +1,5 @@
 import React from "react";
-import { ExternalLink, User, MapPin, Briefcase, Building2 } from "lucide-react";
+import { ExternalLink, User, MapPin, Briefcase, Building2, Mail } from "lucide-react";
 import { motion } from "framer-motion";
 
 const LeadCard = ({ lead, index }) => {
@@ -70,6 +70,19 @@ const LeadCard = ({ lead, index }) => {
             <span className="truncate max-w-[200px]" title={lead.location}>
               {lead.location}
             </span>
+          </div>
+        )}
+        {lead.email && lead.email.trim() && (
+          <div className="flex items-center gap-1">
+            <Mail className="w-3 h-3 flex-shrink-0" />
+            <a
+              href={`mailto:${lead.email}`}
+              className="truncate max-w-[250px] hover:text-primary transition-colors"
+              title={lead.email}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {lead.email}
+            </a>
           </div>
         )}
       </div>

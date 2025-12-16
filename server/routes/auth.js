@@ -348,6 +348,7 @@ router.get("/me", authenticateToken, async (req, res) => {
         provider: true,
         createdAt: true,
         lastLogin: true,
+        isAdmin: true,
       },
     });
 

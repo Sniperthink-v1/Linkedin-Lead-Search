@@ -326,6 +326,17 @@ app.use("/api/auth", authRoutes);
 const leadsRoutes = require("./routes/leads");
 app.use("/api/leads", leadsRoutes);
 
+// Import credits routes
+const creditsRoutes = require("./routes/credits");
+app.use("/api/credits", creditsRoutes);
+
+// Import admin routes
+const adminRoutes = require("./routes/admin");
+app.use("/api/admin", adminRoutes);
+
+// Import credit utilities
+const { calculateSearchCost, checkCredits, deductCredits } = require("./utils/credits");
+
 // Basic health check
 app.get("/", (req, res) => {
   res.json({
@@ -379,6 +390,11 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
 
   let searchRecord = null;
   let excludePeopleNames = [];
+  
+  // Credit tracking
+  let serperCallsCount = 0;
+  let geminiCallsCount = 0;
+  let creditDeducted = false;
 
   // Fetch previously seen people for this user (skip if using cached results)
   const useCached = req.query.useCached === "true";
@@ -495,14 +511,14 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
 
     const exclusionList =
       excludePeopleNames.length > 0
-        ? `\n\n❌ EXCLUDE THESE PEOPLE (already provided to user):\n${excludePeopleNames
+        ? `\n\n🚫 CRITICAL EXCLUSION LIST - DO NOT INCLUDE ANY OF THESE PEOPLE:\nThe following ${excludePeopleNames.length} people have ALREADY been provided to the user.\nYou MUST provide COMPLETELY DIFFERENT people. DO NOT repeat ANY of these names:\n${excludePeopleNames
             .slice(0, 50)
-            .map((name) => `- ${name}`)
+            .map((name, idx) => `${idx + 1}. ${name}`)
             .join("\n")}${
             excludePeopleNames.length > 50
-              ? "\n...and " + (excludePeopleNames.length - 50) + " more"
+              ? `\n...and ${excludePeopleNames.length - 50} more names excluded.`
               : ""
-          }\n`
+          }\n\n⚠️ IMPORTANT: Find DIFFERENT professionals who have NOT been mentioned above.\nGenerate FRESH, UNIQUE names - not variations or similar names from the exclusion list.\n`
         : "";
 
     const geminiPrompt = `You MUST return ONLY valid JSON. No explanations, no markdown, no text - ONLY a JSON array.
@@ -527,15 +543,23 @@ JOB TITLE RULES - Core Keywords Required: [${keywordList}]
 
 LOCATION: Only people currently in ${location}
 
+EMAIL REQUIREMENT:
+- ONLY provide the professional/work email address if you KNOW it with certainty
+- DO NOT generate, guess, or make up email addresses
+- If you don't know the EXACT email, leave it as empty string ""
+- Only include real, verified email addresses you are certain about
+- Better to leave blank than to provide incorrect information
+
 OUTPUT FORMAT - Return EXACTLY this JSON structure with 100 profiles:
 [
-  {"name": "Full Name", "role": "Job Title"},
-  {"name": "Full Name", "role": "Job Title"}
+  {"name": "Full Name", "role": "Job Title", "email": "professional@email.com or empty string if unknown"},
+  {"name": "Full Name", "role": "Job Title", "email": "professional@email.com or empty string if unknown"}
 ]
 
 Sort by: Principal/Staff → Senior/Lead → Mid-level → Junior
+${excludePeopleNames.length > 0 ? `\n🎯 DIVERSITY REQUIREMENT: Since ${excludePeopleNames.length} people are excluded, ensure you provide a DIVERSE set of NEW individuals.\nConsider: Different companies, different seniority levels, different specializations within the role.\nThis ensures the user gets maximum value from fresh results.` : ''}
 
-CRITICAL: Response MUST be valid JSON array. No text before or after. Start with [ and end with ]`;
+CRITICAL: Response MUST be valid JSON array with name, role, AND email fields. No text before or after. Start with [ and end with ]`;
 
     sendUpdate({
       type: "progress",
@@ -546,15 +570,26 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
     });
 
     // Create cache key from search parameters
-    const cacheKey = `people:${businessType}:${location}:${industry || "all"}`;
+    // IMPORTANT: If we have exclusions, add timestamp to force fresh results
+    const cacheKey = excludePeopleNames.length > 0 
+      ? `people:${businessType}:${location}:${industry || "all"}:${Date.now()}`
+      : `people:${businessType}:${location}:${industry || "all"}`;
 
     // Check if user explicitly wants cached results
     const useCached = req.query.useCached === "true";
 
-    // Use cached response or fetch from Gemini
-    const geminiResult = await getCachedGeminiResponse(cacheKey, async () => {
-      return await model.generateContent(geminiPrompt);
-    });
+    // If we have exclusions, force fresh Gemini call (skip cache)
+    const geminiResult = excludePeopleNames.length > 0
+      ? await (async () => {
+          geminiCallsCount++; // Count the API call
+          console.log(`🔄 Forcing fresh Gemini call due to ${excludePeopleNames.length} exclusions`);
+          const result = await model.generateContent(geminiPrompt);
+          return { data: result, cacheHit: false };
+        })()
+      : await getCachedGeminiResponse(cacheKey, async () => {
+          geminiCallsCount++; // Only count if not cached
+          return await model.generateContent(geminiPrompt);
+        });
 
     // If cache hit and user hasn't chosen yet, AND we have complete cached results, ask them
     if (
@@ -710,6 +745,7 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
             },
           }
         );
+        serperCallsCount++; // Track Serper API call
 
         const results = serperResponse.data.organic || [];
 
@@ -856,6 +892,7 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
               basicProfile.name
             )}&background=0D8ABC&color=fff&size=128`,
             title: result.title,
+            email: basicProfile.email || "",
           };
 
           // Check if this person was already provided to user (real-time deduplication)
@@ -972,6 +1009,35 @@ CRITICAL: Response MUST be valid JSON array. No text before or after. Start with
           resultsCache.delete(sortedEntries[i][0]);
         }
         console.log(`🧹 Cleaned ${entriesToRemove} old results cache entries`);
+      }
+    }
+
+    // Deduct credits for API usage (only if not using cached complete results)
+    if (!useCached && req.user?.id) {
+      try {
+        const costs = calculateSearchCost(serperCallsCount, geminiCallsCount);
+        console.log(`\n💳 Credit Deduction:`);
+        console.log(`   Serper calls: ${serperCallsCount}`);
+        console.log(`   Gemini calls: ${geminiCallsCount}`);
+        console.log(`   Actual cost: $${costs.actualCost}`);
+        console.log(`   Charged cost: $${costs.chargedCost} (1.25x markup)`);
+        
+        await deductCredits(req.user.id, {
+          amount: costs.chargedCost,
+          type: "search",
+          description: `LinkedIn people search: ${businessType} in ${location}`,
+          searchType: "people",
+          apiCostActual: costs.actualCost,
+          apiCostCharged: costs.chargedCost,
+          serperCalls: serperCallsCount,
+          geminiCalls: geminiCallsCount,
+          resultCount: enrichedLeads.length,
+        });
+        creditDeducted = true;
+        console.log(`   ✅ Credits deducted successfully`);
+      } catch (creditError) {
+        console.error("Failed to deduct credits:", creditError);
+        // Continue anyway - don't block the search results
       }
     }
 
@@ -1121,6 +1187,11 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
 
   let searchRecord = null;
   let excludeBusinessNames = [];
+  
+  // Credit tracking
+  let serperCallsCount = 0;
+  let geminiCallsCount = 0;
+  let creditDeducted = false;
 
   // Fetch previously seen business names for this user
   if (req.user?.id && !specificBusinessName) {
@@ -1294,10 +1365,18 @@ CRITICAL INSTRUCTIONS:
 - Keep description concise and informative
 - If this business has a well-known website, base description on their actual services
 
+EMAIL REQUIREMENT:
+- ONLY provide the business email if you KNOW it with certainty (from their website or public records)
+- DO NOT generate, guess, or make up email addresses
+- If you don't know the EXACT email, leave it as empty string ""
+- Only include real, verified business email addresses you are certain about
+- Better to leave blank than to provide incorrect information
+
 OUTPUT FORMAT:
 {
   "searchQueries": ["${specificBusinessName} ${location}"],
-  "descriptions": ["Concise 2-line description (max 200 chars) of services and specialization, or empty string if unknown"]
+  "descriptions": ["Concise 2-line description (max 200 chars) of services and specialization, or empty string if unknown"],
+  "emails": ["verified@businessemail.com or empty string if you don't know it"]
 }
 
 CRITICAL: Valid JSON only. No markdown, no explanations, no additional text.`;
@@ -1305,14 +1384,14 @@ CRITICAL: Valid JSON only. No markdown, no explanations, no additional text.`;
       // Owner name search - use direct search approach
       const exclusionList =
         excludeBusinessNames.length > 0
-          ? `\n\n❌ EXCLUDE THESE BUSINESSES (already provided to user):\n${excludeBusinessNames
+          ? `\n\n🚫 CRITICAL EXCLUSION LIST - DO NOT INCLUDE ANY OF THESE BUSINESSES:\nThe following ${excludeBusinessNames.length} businesses have ALREADY been provided to the user.\nYou MUST suggest COMPLETELY DIFFERENT businesses. DO NOT repeat ANY of these:\n${excludeBusinessNames
               .slice(0, 30)
-              .map((name) => `- ${name}`)
+              .map((name, idx) => `${idx + 1}. ${name}`)
               .join("\n")}${
               excludeBusinessNames.length > 30
-                ? "\n...and " + (excludeBusinessNames.length - 30) + " more"
+                ? `\n...and ${excludeBusinessNames.length - 30} more businesses excluded.`
                 : ""
-            }`
+            }\n\n⚠️ IMPORTANT: Suggest DIFFERENT businesses that are NOT in the above list.\nGenerate NEW, UNIQUE business names - avoid any variations of excluded businesses.\n`
           : "";
 
       geminiPrompt = `You are a search query generator. Return ONLY valid JSON with Google Maps search queries and concise descriptions.
@@ -1347,6 +1426,13 @@ CRITICAL INSTRUCTIONS:
 - Keep descriptions concise and informative
 - Base descriptions on what you know about their actual business operations${exclusionList}
 
+EMAIL REQUIREMENT:
+- ONLY provide the business email if you KNOW it with certainty (from their website or public records)
+- DO NOT generate, guess, or make up email addresses
+- If you don't know the EXACT email, leave it as empty string ""
+- Only include real, verified business email addresses you are certain about
+- Better to leave blank than to provide incorrect information
+
 OUTPUT FORMAT:
 {
   "searchQueries": [
@@ -1356,22 +1442,27 @@ OUTPUT FORMAT:
   "descriptions": [
     "Concise 2-line description (max 200 chars) of services and specialization, or empty string if unknown",
     "Concise 2-line description (max 200 chars) of services and specialization, or empty string if unknown"
+  ],
+  "emails": [
+    "verified@business1.com or empty string if you don't know it",
+    "verified@business2.com or empty string if you don't know it"
   ]
 }
+${excludeBusinessNames.length > 0 ? `\n🎯 DIVERSITY REQUIREMENT: Since ${excludeBusinessNames.length} businesses are excluded, provide a DIVERSE set of NEW businesses.\nConsider: Different owners, different areas within ${location}, different business models/specializations.\nThis ensures the user discovers fresh opportunities.` : ''}
 
 CRITICAL: Valid JSON only. If uncertain about any business, return fewer results or empty array. No markdown, no explanations.`;
     } else {
       // General business type search - generate search queries
       const exclusionList =
         excludeBusinessNames.length > 0
-          ? `\n\n❌ EXCLUDE THESE BUSINESSES (already provided to user):\n${excludeBusinessNames
+          ? `\n\n🚫 CRITICAL EXCLUSION LIST - DO NOT INCLUDE ANY OF THESE BUSINESSES:\nThe following ${excludeBusinessNames.length} businesses have ALREADY been provided to the user.\nYou MUST suggest COMPLETELY DIFFERENT businesses. DO NOT repeat ANY of these:\n${excludeBusinessNames
               .slice(0, 30)
-              .map((name) => `- ${name}`)
+              .map((name, idx) => `${idx + 1}. ${name}`)
               .join("\n")}${
               excludeBusinessNames.length > 30
-                ? "\n...and " + (excludeBusinessNames.length - 30) + " more"
+                ? `\n...and ${excludeBusinessNames.length - 30} more businesses excluded.`
                 : ""
-            }`
+            }\n\n⚠️ IMPORTANT: Find DIFFERENT businesses that are NOT in the above list.\nLook for OTHER establishments - not variations or branches of excluded businesses.\n`
           : "";
 
       geminiPrompt = `You are a search query generator. Return ONLY valid JSON with Google Maps search queries and concise descriptions.
@@ -1412,6 +1503,13 @@ CRITICAL INSTRUCTIONS:
 - Base descriptions on what you know from their website or public information
 - ONLY add descriptions for businesses you know well${exclusionList}
 
+EMAIL REQUIREMENT:
+- ONLY provide the business email if you KNOW it with certainty (from their website or public records)
+- DO NOT generate, guess, or make up email addresses
+- If you don't know the EXACT email, leave it as empty string ""
+- Only include real, verified business email addresses you are certain about
+- Better to leave blank than to provide incorrect information
+
 OUTPUT FORMAT:
 {
   "searchQueries": [
@@ -1421,8 +1519,13 @@ OUTPUT FORMAT:
   "descriptions": [
     "Concise 2-line description (max 200 chars) focusing on services and specialization. Empty string if unknown",
     "Concise 2-line description (max 200 chars) focusing on services and specialization. Empty string if unknown"
+  ],
+  "emails": [
+    "verified@business1.com or empty string if you don't know it",
+    "verified@business2.com or empty string if you don't know it"
   ]
 }
+${excludeBusinessNames.length > 0 ? `\n🎯 DIVERSITY REQUIREMENT: Since ${excludeBusinessNames.length} businesses are excluded, provide a DIVERSE set of NEW businesses.\nConsider: Different neighborhoods/areas, different scales (small/medium/large), different specializations.\nHelp the user discover fresh businesses they haven't seen yet.` : ''}
 
 CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exist. No markdown, no explanations, no hallucinations.`;
     }
@@ -1448,19 +1551,32 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
     });
 
     // Create cache key from search parameters
-    const cacheKey = specificBusinessName
+    // IMPORTANT: If we have exclusions, add timestamp to force fresh results
+    const baseCacheKey = specificBusinessName
       ? `business:specific:${specificBusinessName}:${location}`
       : ownerName
       ? `business:owner:${ownerName}:${location}:${requestedLeads}`
       : `business:${businessType}:${location}:${requestedLeads}`;
+    
+    const cacheKey = excludeBusinessNames.length > 0
+      ? `${baseCacheKey}:${Date.now()}`
+      : baseCacheKey;
 
     // Check if user explicitly wants cached results
     const useCached = req.query.useCached === "true";
 
-    // Use cached response or fetch from Gemini
-    const geminiResult = await getCachedGeminiResponse(cacheKey, async () => {
-      return await model.generateContent(geminiPrompt);
-    });
+    // If we have exclusions, force fresh Gemini call (skip cache)
+    const geminiResult = excludeBusinessNames.length > 0
+      ? await (async () => {
+          geminiCallsCount++; // Count the API call
+          console.log(`🔄 Forcing fresh Gemini call due to ${excludeBusinessNames.length} exclusions`);
+          const result = await model.generateContent(geminiPrompt);
+          return { data: result, cacheHit: false };
+        })()
+      : await getCachedGeminiResponse(cacheKey, async () => {
+          geminiCallsCount++; // Only count if not cached
+          return await model.generateContent(geminiPrompt);
+        });
 
     // If cache hit and user hasn't chosen yet, AND we have complete cached results, ask them
     if (
@@ -1514,10 +1630,11 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
       );
     }
 
-    // Parse Gemini response to get search queries and descriptions
+    // Parse Gemini response to get search queries, descriptions, and emails
     const searchQueriesData = JSON.parse(geminiText);
     const searchQueries = searchQueriesData.searchQueries || [];
     const descriptions = searchQueriesData.descriptions || [];
+    const geminiEmails = searchQueriesData.emails || [];
 
     if (!Array.isArray(searchQueries) || searchQueries.length === 0) {
       throw new Error("Gemini returned empty or invalid search queries");
@@ -1525,6 +1642,7 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
 
     console.log(`Generated ${searchQueries.length} search queries from Gemini`);
     console.log(`Generated ${descriptions.length} descriptions from Gemini`);
+    console.log(`Generated ${geminiEmails.length} emails from Gemini`);
 
     // Step 2: Fetch all business data from Google Maps (Serper API)
     console.log(
@@ -1572,6 +1690,7 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
     for (let i = 0; i < searchQueries.length; i++) {
       const searchQuery = searchQueries[i];
       const geminiDescription = descriptions[i] || ""; // Get corresponding description
+      const geminiEmail = geminiEmails[i] || ""; // Get corresponding email
       console.log(
         `\nProcessing ${i + 1}/${searchQueries.length}: ${searchQuery}`
       );
@@ -1599,6 +1718,7 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
             timeout: 10000 // 10 second timeout
           }
         );
+        serperCallsCount++; // Track Serper API call
 
         const places = serperResponse.data.places || [];
 
@@ -1810,12 +1930,20 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
         // The free tier has only 20 requests per day, and each phone extraction uses 1 call
         // This adds up quickly when searching for multiple businesses
 
+        // Use Gemini-generated email
+        const finalEmail = geminiEmail && geminiEmail.trim() && geminiEmail !== "-" ? geminiEmail : "-";
+        if (finalEmail !== "-") {
+          console.log(`   📧 Email from Gemini: ${finalEmail}`);
+        } else {
+          console.log(`   ℹ️ No email available`);
+        }
+
         // Use verified data from Google Maps + Gemini
         const enrichedBusiness = {
           name: businessName,
           address: businessAddress,
           phone: finalPhone,
-          email: "-", // Google Maps doesn't provide email
+          email: finalEmail,
           website: place.website || "-",
           rating: place.rating?.toString() || "-",
           totalRatings: reviewCount,
@@ -1977,6 +2105,35 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
           resultsCache.delete(sortedEntries[i][0]);
         }
         console.log(`🧹 Cleaned ${entriesToRemove} old results cache entries`);
+      }
+    }
+
+    // Deduct credits for API usage
+    if (req.user?.id && !useCached) {
+      try {
+        const costs = calculateSearchCost(serperCallsCount, geminiCallsCount);
+        console.log(`\n💳 Credit Deduction:`);
+        console.log(`   Serper calls: ${serperCallsCount}`);
+        console.log(`   Gemini calls: ${geminiCallsCount}`);
+        console.log(`   Actual cost: $${costs.actualCost}`);
+        console.log(`   Charged cost: $${costs.chargedCost} (1.25x markup)`);
+        
+        await deductCredits(req.user.id, {
+          amount: costs.chargedCost,
+          type: "search",
+          description: `Business search: ${specificBusinessName || businessType || `owner ${ownerName}`} in ${location}`,
+          searchType: "business",
+          apiCostActual: costs.actualCost,
+          apiCostCharged: costs.chargedCost,
+          serperCalls: serperCallsCount,
+          geminiCalls: geminiCallsCount,
+          resultCount: enrichedBusinesses.length,
+        });
+        creditDeducted = true;
+        console.log(`   ✅ Credits deducted successfully`);
+      } catch (creditError) {
+        console.error("Failed to deduct credits:", creditError);
+        // Continue anyway - don't block the search results
       }
     }
 

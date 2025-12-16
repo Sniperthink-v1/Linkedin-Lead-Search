@@ -22,6 +22,8 @@ model User {
   accountStatus     String    @default("active") // active, suspended, deleted
   provider          String    @default("email") // email, google, linkedin
   providerId        String?   // OAuth provider user ID
+  credits           Float     @default(100.0) // User credits for API usage
+  isAdmin           Boolean   @default(false) // Admin access flag
   createdAt         DateTime  @default(now())
   lastLogin         DateTime?
   
@@ -29,6 +31,7 @@ model User {
   searches          Search[]
   savedLeads        SavedLead[]
   leadHistory       UserLeadHistory[]
+  creditTransactions CreditTransaction[]
   
   @@index([email])
 }
@@ -78,6 +81,7 @@ model SavedLead {
   googleMapsLink String?
   ownerName     String?
   description   String?
+  category      String?
   searchDate    DateTime?
   
   // Metadata
@@ -129,4 +133,27 @@ model CityPinCode {
   updatedAt DateTime @updatedAt
   
   @@index([city])
+}
+
+// Credit transactions - track all credit usage and additions
+model CreditTransaction {
+  id              String   @id @default(uuid())
+  userId          String
+  amount          Float    // Positive for additions, negative for deductions
+  type            String   // "search", "purchase", "admin_adjustment", "signup_bonus"
+  description     String?
+  searchType      String?  // "people" or "business"
+  apiCostActual   Float?   // Actual API cost incurred (Serper + Gemini)
+  apiCostCharged  Float?   // Amount charged to user (1.25x markup)
+  serperCalls     Int?     // Number of Serper API calls
+  geminiCalls     Int?     // Number of Gemini API calls
+  resultCount     Int?     // Number of results returned
+  balanceBefore   Float    // User's balance before transaction
+  balanceAfter    Float    // User's balance after transaction
+  createdAt       DateTime @default(now())
+  
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId, createdAt])
+  @@index([type])
 }

@@ -90,6 +90,7 @@ router.post("/save", authenticateToken, async (req, res) => {
         location: leadData.location,
         profileLink: leadData.profileLink,
         snippet: leadData.snippet,
+        email: leadData.email || null,
       };
     } else {
       saveData = {
@@ -108,6 +109,7 @@ router.post("/save", authenticateToken, async (req, res) => {
         googleMapsLink: leadData.googleMapsLink,
         ownerName: leadData.ownerName,
         description: leadData.description,
+        category: leadData.category,
         searchDate: leadData.searchDate ? new Date(leadData.searchDate) : null,
       };
     }

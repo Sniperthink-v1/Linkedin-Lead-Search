@@ -7,6 +7,7 @@ import SearchHistory from "./components/SearchHistory";
 import SavedLeads from "./components/SavedLeads";
 import Settings from "./components/Settings";
 import EmailVerificationBanner from "./components/EmailVerificationBanner";
+import AdminDashboard from "./components/AdminDashboard";
 import {
   Users,
   ExternalLink,
@@ -48,6 +49,7 @@ function App() {
   const [showSearchHistory, setShowSearchHistory] = useState(false);
   const [showSavedLeads, setShowSavedLeads] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   
   // Track last search parameters for "Load More" functionality
   const [lastSearchParams, setLastSearchParams] = useState(null);
@@ -177,16 +179,35 @@ function App() {
   const handleDownloadExcel = () => {
     // Prepare data for Excel export based on active tab
     let excelData, sheetName, filename;
+    
+    // Generate date string for filename (YYYY-MM-DD format)
+    const dateStr = new Date().toISOString().split('T')[0];
+    
+    // Get search parameters for filename
+    const businessType = lastSearchParams?.businessType || lastSearchParams?.specificBusinessName || lastSearchParams?.industry || "unknown";
+    const location = lastSearchParams?.location || "unknown";
+    
+    // Clean strings for filename (remove special characters, limit length)
+    const cleanString = (str) => {
+      return str
+        .toString()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 30);
+    };
 
     if (activeTab === "people") {
       excelData = leads.map((lead) => ({
         Name: lead.personName,
         "Job Title": lead.jobTitle || "-",
         Company: lead.company || "-",
+        Email: lead.email || "-",
+        Location: lead.location || "-",
         Link: lead.profileLink,
       }));
       sheetName = "LinkedIn Leads";
-      filename = "linkedin_leads";
+      filename = `people_${dateStr}_${cleanString(businessType)}_${cleanString(location)}`;
     } else {
       excelData = leads.map((lead) => ({
         "Business Name": lead.name,
@@ -204,7 +225,7 @@ function App() {
         "Google Maps Link": lead.googleMapsLink,
       }));
       sheetName = "Business Leads";
-      filename = "business_leads";
+      filename = `business_${dateStr}_${cleanString(businessType)}_${cleanString(location)}`;
     }
 
     // Create workbook and worksheet
@@ -212,14 +233,8 @@ function App() {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
 
-    // Generate timestamp
-    const timestamp = new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .slice(0, -5);
-
     // Download file
-    XLSX.writeFile(workbook, `${filename}_${timestamp}.xlsx`);
+    XLSX.writeFile(workbook, `${filename}.xlsx`);
   };
 
   const handleSaveAll = async () => {
@@ -523,6 +538,7 @@ function App() {
                 onShowSearchHistory={() => setShowSearchHistory(true)}
                 onShowSavedLeads={() => setShowSavedLeads(true)}
                 onShowSettings={() => setShowSettings(true)}
+                onShowAdminDashboard={() => setShowAdminDashboard(true)}
               />
             ) : (
               <div className="flex gap-2">
@@ -1074,6 +1090,11 @@ function App() {
       {/* Settings Modal */}
       {showSettings && (
         <Settings user={user} onClose={() => setShowSettings(false)} />
+      )}
+
+      {/* Admin Dashboard Modal */}
+      {showAdminDashboard && user?.isAdmin && (
+        <AdminDashboard onClose={() => setShowAdminDashboard(false)} />
       )}
     </div>
   );

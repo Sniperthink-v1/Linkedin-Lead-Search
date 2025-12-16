@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   User,
   LogOut,
@@ -6,7 +6,12 @@ import {
   History,
   Download,
   Settings,
+  Coins,
+  Plus,
+  Activity,
 } from "lucide-react";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 const UserProfile = ({
   user,
@@ -14,8 +19,31 @@ const UserProfile = ({
   onShowSearchHistory,
   onShowSavedLeads,
   onShowSettings,
+  onShowAdminDashboard,
 }) => {
   const [showDropdown, setShowDropdown] = useState(false);
+  const [credits, setCredits] = useState(null);
+
+  useEffect(() => {
+    fetchCredits();
+  }, []);
+
+  const fetchCredits = async () => {
+    try {
+      const token = localStorage.getItem("authToken");
+      const response = await fetch(`${API_URL}/api/credits/balance`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (data.success) {
+        setCredits(data.credits);
+      }
+    } catch (error) {
+      console.error("Failed to fetch credits:", error);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem("authToken");
@@ -87,8 +115,28 @@ const UserProfile = ({
                   <p className="text-blue-100 text-xs">{user?.email || ""}</p>
                 </div>
               </div>
+              {/* Credits Display */}
+              <div className="mt-3 flex items-center justify-between bg-white bg-opacity-10 rounded-lg p-3">
+                <div className="flex items-center gap-2">
+                  <Coins className="w-5 h-5 text-yellow-300" />
+                  <div>
+                    <p className="text-white font-bold text-lg">
+                      {credits !== null ? `$${credits.toFixed(4)}` : "Loading..."}
+                    </p>
+                    <p className="text-blue-100 text-xs">Available Credits</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => alert("Credit purchase coming soon!")}
+                  className="bg-white bg-opacity-20 hover:bg-opacity-30 text-white p-2 rounded-lg transition-all"
+                  title="Add credits"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+
               {user?.stats && (
-                <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                   <div className="bg-white bg-opacity-10 rounded-lg p-2">
                     <p className="text-white font-bold text-sm">
                       {user.stats.searchesToday || 0}
@@ -113,6 +161,18 @@ const UserProfile = ({
 
             {/* Menu items */}
             <div className="p-2">
+              {user?.isAdmin && (
+                <>
+                  <button
+                    onClick={() => handleMenuClick(onShowAdminDashboard)}
+                    className="w-full flex items-center gap-3 px-3 py-2 hover:bg-primary hover:bg-opacity-10 rounded-lg text-primary hover:text-primary transition-colors mb-2 border border-primary/30"
+                  >
+                    <Activity className="w-4 h-4" />
+                    <span className="text-sm font-semibold">Admin Dashboard</span>
+                  </button>
+                  <div className="border-t border-gray-800 my-2" />
+                </>
+              )}
               <button
                 onClick={() => handleMenuClick(onShowSearchHistory)}
                 className="w-full flex items-center gap-3 px-3 py-2 hover:bg-dark rounded-lg text-gray-300 hover:text-white transition-colors"
