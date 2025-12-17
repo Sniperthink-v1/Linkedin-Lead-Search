@@ -126,6 +126,47 @@ function AdminDashboard({ onClose }) {
     }
   };
 
+  const handleRemoveCredits = async (userId) => {
+    const amount = prompt("Enter amount to remove:");
+    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+      alert("Please enter a valid positive amount");
+      return;
+    }
+
+    const description = prompt("Enter reason for removal (optional):");
+
+    const confirmRemoval = confirm(
+      `Are you sure you want to remove $${parseFloat(amount).toFixed(4)} credits?`
+    );
+    if (!confirmRemoval) return;
+
+    try {
+      const token = localStorage.getItem("authToken");
+      const response = await fetch(`${API_URL}/api/admin/user/${userId}/credits`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          amount: -parseFloat(amount), // Negative for removal
+          description,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        alert(`Credits removed! New balance: $${data.newBalance.toFixed(4)}`);
+        fetchUsers();
+      } else {
+        alert(data.error || "Failed to remove credits");
+      }
+    } catch (error) {
+      console.error("Remove credits error:", error);
+      alert("Failed to remove credits");
+    }
+  };
+
   if (loading && !stats) {
     return (
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
@@ -323,6 +364,12 @@ function AdminDashboard({ onClose }) {
                           >
                             Add Credits
                           </button>
+                          <button
+                            onClick={() => handleRemoveCredits(user.id)}
+                            className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm"
+                          >
+                            Remove Credits
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -417,13 +464,22 @@ function AdminDashboard({ onClose }) {
                           </span>
                         </td>
                         <td className="p-4">
-                          <button
-                            onClick={() => handleAddCredits(user.id)}
-                            className="bg-primary hover:bg-blue-600 text-white px-3 py-1 rounded text-sm flex items-center gap-1"
-                          >
-                            <Coins className="w-3 h-3" />
-                            Add
-                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleAddCredits(user.id)}
+                              className="bg-primary hover:bg-blue-600 text-white px-3 py-1 rounded text-sm flex items-center gap-1"
+                            >
+                              <Coins className="w-3 h-3" />
+                              Add
+                            </button>
+                            <button
+                              onClick={() => handleRemoveCredits(user.id)}
+                              className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1"
+                            >
+                              <Coins className="w-3 h-3" />
+                              Remove
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

@@ -1,6 +1,7 @@
 const express = require("express");
 const { PrismaClient } = require("@prisma/client");
 const { authenticateToken } = require("../middleware/auth");
+const { parseAddress, parseSimpleLocation } = require("../utils/addressParser");
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -82,6 +83,9 @@ router.post("/save", authenticateToken, async (req, res) => {
     };
 
     if (leadType === "people") {
+      // Parse location for people leads
+      const parsedLocation = parseSimpleLocation(leadData.location);
+      
       saveData = {
         ...saveData,
         personName: leadData.personName,
@@ -91,8 +95,15 @@ router.post("/save", authenticateToken, async (req, res) => {
         profileLink: leadData.profileLink,
         snippet: leadData.snippet,
         email: leadData.email || null,
+        // Add parsed location fields
+        city: parsedLocation.city,
+        state: parsedLocation.state,
+        country: parsedLocation.country,
       };
     } else {
+      // Parse address for business leads (with pincode lookup)
+      const parsedAddress = await parseAddress(leadData.address, true);
+      
       saveData = {
         ...saveData,
         businessName: leadData.name,
@@ -111,6 +122,11 @@ router.post("/save", authenticateToken, async (req, res) => {
         description: leadData.description,
         category: leadData.category,
         searchDate: leadData.searchDate ? new Date(leadData.searchDate) : null,
+        // Add parsed location fields
+        city: parsedAddress.city,
+        state: parsedAddress.state,
+        country: parsedAddress.country,
+        pincode: parsedAddress.pincode,
       };
     }
 

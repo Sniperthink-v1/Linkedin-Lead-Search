@@ -182,30 +182,13 @@ function SavedLeads({ onClose }) {
     XLSX.writeFile(workbook, `${filename}.xlsx`);
   };
 
-  // Helper function to parse location
-  const parseLocation = (locationStr) => {
-    if (!locationStr || locationStr === "-") return { city: "", state: "", country: "" };
-    
-    const parts = locationStr.split(",").map(p => p.trim());
-    
-    // For business addresses with format: "street, area, city, state pin, country"
-    // We want to extract the city (usually 3rd or 4th from end), state, and country
-    if (parts.length >= 3) {
-      const country = parts[parts.length - 1]; // Last part is country
-      const stateWithPin = parts[parts.length - 2]; // Second to last might be "State 243001"
-      const city = parts[parts.length - 3]; // Third to last is usually city
-      
-      // Extract state (remove pin code if present)
-      const state = stateWithPin.replace(/\s+\d+$/, '').trim();
-      
-      return { city, state, country };
-    } else if (parts.length === 2) {
-      return { city: parts[0], state: "", country: parts[1] };
-    } else if (parts.length === 1) {
-      return { city: parts[0], state: "", country: "" };
-    }
-    
-    return { city: locationStr, state: "", country: "" };
+  // Get location from structured fields (no parsing needed)
+  const getLocation = (lead) => {
+    return {
+      city: lead.city || "",
+      state: lead.state || "",
+      country: lead.country || ""
+    };
   };
 
   const getFilteredAndSortedLeads = () => {
@@ -221,32 +204,17 @@ function SavedLeads({ onClose }) {
     
     // Filter by city
     if (cityFilter !== "all") {
-      filtered = filtered.filter((lead) => {
-        // For business leads, use address; for people leads, use location
-        const locationStr = lead.leadType === "business" ? lead.address : lead.location;
-        const location = parseLocation(locationStr);
-        return location.city === cityFilter;
-      });
+      filtered = filtered.filter((lead) => lead.city === cityFilter);
     }
     
     // Filter by state
     if (stateFilter !== "all") {
-      filtered = filtered.filter((lead) => {
-        // For business leads, use address; for people leads, use location
-        const locationStr = lead.leadType === "business" ? lead.address : lead.location;
-        const location = parseLocation(locationStr);
-        return location.state === stateFilter;
-      });
+      filtered = filtered.filter((lead) => lead.state === stateFilter);
     }
     
     // Filter by country
     if (countryFilter !== "all") {
-      filtered = filtered.filter((lead) => {
-        // For business leads, use address; for people leads, use location
-        const locationStr = lead.leadType === "business" ? lead.address : lead.location;
-        const location = parseLocation(locationStr);
-        return location.country === countryFilter;
-      });
+      filtered = filtered.filter((lead) => lead.country === countryFilter);
     }
     
     // Then sort
@@ -285,10 +253,7 @@ function SavedLeads({ onClose }) {
   const getUniqueCities = () => {
     const cities = new Set();
     savedLeads.forEach((lead) => {
-      // For business leads, use address; for people leads, use location
-      const locationStr = lead.leadType === "business" ? lead.address : lead.location;
-      const location = parseLocation(locationStr);
-      if (location.city) cities.add(location.city);
+      if (lead.city) cities.add(lead.city);
     });
     return Array.from(cities).sort();
   };
@@ -297,10 +262,7 @@ function SavedLeads({ onClose }) {
   const getUniqueStates = () => {
     const states = new Set();
     savedLeads.forEach((lead) => {
-      // For business leads, use address; for people leads, use location
-      const locationStr = lead.leadType === "business" ? lead.address : lead.location;
-      const location = parseLocation(locationStr);
-      if (location.state) states.add(location.state);
+      if (lead.state) states.add(lead.state);
     });
     return Array.from(states).sort();
   };
@@ -309,10 +271,7 @@ function SavedLeads({ onClose }) {
   const getUniqueCountries = () => {
     const countries = new Set();
     savedLeads.forEach((lead) => {
-      // For business leads, use address; for people leads, use location
-      const locationStr = lead.leadType === "business" ? lead.address : lead.location;
-      const location = parseLocation(locationStr);
-      if (location.country) countries.add(location.country);
+      if (lead.country) countries.add(lead.country);
     });
     return Array.from(countries).sort();
   };

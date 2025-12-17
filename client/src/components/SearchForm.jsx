@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { Search, Loader2, Sparkles } from "lucide-react";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
 const SearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
   const [formData, setFormData] = useState({
     businessType: "",
@@ -24,7 +26,7 @@ const SearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
 
     setIsParsing(true);
     try {
-      const response = await fetch("http://localhost:3000/api/parse-query", {
+      const response = await fetch(`${API_URL}/api/parse-query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: quickQuery }),

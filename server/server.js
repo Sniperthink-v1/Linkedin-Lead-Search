@@ -23,6 +23,98 @@ const pinCodeCache = new Map();
 const PINCODE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours (pin codes don't change often)
 const MAX_PINCODE_CACHE_SIZE = 1000; // Support up to 1000 cities in memory
 
+/**
+ * Retry helper with exponential backoff for Gemini API calls
+ * Handles 503 Service Unavailable errors with automatic retry and fallback models
+ * @param {Object} model - The Gemini model instance
+ * @param {string} prompt - The prompt to send
+ * @param {Object} options - Retry configuration
+ * @param {number} options.maxRetries - Maximum number of retry attempts (default: 3)
+ * @param {number} options.initialDelay - Initial delay in ms (default: 1000)
+ * @param {Array<string>} options.fallbackModels - Array of fallback model names to try
+ * @returns {Promise} - The result from generateContent
+ */
+async function generateWithRetry(model, prompt, options = {}) {
+  const {
+    maxRetries = 3,
+    initialDelay = 2000,
+    fallbackModels = ["gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest"],
+  } = options;
+
+  let lastError;
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+  // Try primary model with retries
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      console.log(
+        `🤖 Gemini API call (attempt ${attempt + 1}/${maxRetries})...`
+      );
+      const result = await model.generateContent(prompt);
+      console.log(`✅ Gemini API call successful`);
+      return result;
+    } catch (error) {
+      lastError = error;
+      const errorMessage = error.message || String(error);
+
+      // Check if it's a 503 or overload error
+      if (
+        errorMessage.includes("503") ||
+        errorMessage.toLowerCase().includes("overload") ||
+        errorMessage.toLowerCase().includes("temporarily unavailable") ||
+        errorMessage.toLowerCase().includes("resource exhausted")
+      ) {
+        if (attempt < maxRetries - 1) {
+          const waitTime = initialDelay * Math.pow(2, attempt);
+          console.warn(
+            `⚠️ Model overloaded (503). Retrying in ${waitTime}ms... (${
+              attempt + 1
+            }/${maxRetries})`
+          );
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+          continue;
+        } else {
+          console.error(
+            `❌ Primary model failed after ${maxRetries} attempts. Trying fallback models...`
+          );
+        }
+      } else {
+        // For non-503 errors, throw immediately
+        throw error;
+      }
+    }
+  }
+
+  // Try fallback models if primary model failed
+  for (const fallbackModelName of fallbackModels) {
+    try {
+      console.log(`🔄 Trying fallback model: ${fallbackModelName}...`);
+      const fallbackModel = genAI.getGenerativeModel({
+        model: fallbackModelName,
+      });
+      const result = await fallbackModel.generateContent(prompt);
+      console.log(`✅ Fallback model ${fallbackModelName} succeeded`);
+      return result;
+    } catch (error) {
+      console.error(
+        `❌ Fallback model ${fallbackModelName} failed:`,
+        error.message
+      );
+      lastError = error;
+      continue;
+    }
+  }
+
+  // All attempts failed
+  console.error(
+    `❌ All retry attempts and fallback models exhausted. Last error:`,
+    lastError.message
+  );
+  throw new Error(
+    `Gemini API unavailable after ${maxRetries} retries and ${fallbackModels.length} fallback attempts: ${lastError.message}`
+  );
+}
+
 // Pin code database for major cities (no API calls needed)
 const CITY_PIN_CODES = {
   // Delhi NCR
@@ -1184,9 +1276,84 @@ async function getPinCodesForLocation(location) {
     );
 
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
-    const pinCodePrompt = `You are a pin code database. Return ONLY valid JSON with pin codes for the specified Indian city.
+    // Common Indian states for detection
+    const indianStates = [
+      "andhra pradesh", "arunachal pradesh", "assam", "bihar", "chhattisgarh",
+      "goa", "gujarat", "haryana", "himachal pradesh", "jharkhand", "karnataka",
+      "kerala", "madhya pradesh", "maharashtra", "manipur", "meghalaya", "mizoram",
+      "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil nadu",
+      "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal",
+      "andaman and nicobar", "chandigarh", "dadra and nagar haveli", "daman and diu",
+      "delhi", "jammu and kashmir", "ladakh", "lakshadweep", "puducherry"
+    ];
+
+    // Detect if location is a state or country
+    const isState = indianStates.includes(locationLower);
+    const isCountry = locationLower === "india";
+
+    // Build prompt based on location type
+    let pinCodePrompt;
+    if (isCountry) {
+      pinCodePrompt = `You are an Indian postal code expert. Return ONLY valid JSON with ALL pin code ranges for India.
+
+Task: Provide the COMPLETE pin code ranges that cover ALL of India as assigned by India Post.
+
+CRITICAL REQUIREMENTS:
+- India Post uses a systematic 6-digit pin code system
+- First digit (1-9) represents postal region
+- First 2 digits represent sub-region/circle
+- First 3 digits represent sorting district
+- Return RANGES that cover ENTIRE India (110001-855126 or similar complete ranges)
+- Each range should cover a major region or set of states
+- Ensure NO gaps - every valid Indian pin code must be included
+- Format: "XXXXXX-YYYYYY" for ranges
+
+OFFICIAL INDIAN PIN CODE SYSTEM:
+- 1XXXXX: Delhi, Haryana, Punjab, Himachal Pradesh, Jammu & Kashmir, Ladakh
+- 2XXXXX: Uttar Pradesh, Uttarakhand
+- 3XXXXX: Rajasthan, Gujarat, Daman & Diu, Dadra & Nagar Haveli
+- 4XXXXX: Maharashtra, Madhya Pradesh, Chhattisgarh, Goa
+- 5XXXXX: Andhra Pradesh, Telangana, Karnataka
+- 6XXXXX: Tamil Nadu, Kerala, Puducherry, Lakshadweep
+- 7XXXXX: West Bengal, Odisha, Assam, North East states
+- 8XXXXX: Bihar, Jharkhand, Andaman & Nicobar
+
+OUTPUT FORMAT (provide complete ranges):
+{
+  "pinCodeRanges": ["110001-136156", "140001-160104", "201001-285223", ...]
+}
+
+CRITICAL: Return COMPLETE ranges covering all of India. No markdown, no explanations.`;
+    } else if (isState) {
+      pinCodePrompt = `You are an Indian postal code expert. Return ONLY valid JSON with ALL pin code ranges for the state.
+
+Task: Provide the COMPLETE pin code ranges assigned to "${location}", India by India Post.
+
+CRITICAL REQUIREMENTS:
+- Provide the FULL range of pin codes officially assigned to ${location}
+- Use the EXACT starting and ending pin codes for ${location}
+- Format: "XXXXXX-YYYYYY" (e.g., "452001-458999" for Indore region)
+- Include ALL districts and cities within ${location}
+- Ensure NO gaps - every pin code assigned to ${location} must be covered
+- DO NOT include neighboring states' pin codes
+- Return 5-15 ranges that COMPLETELY cover the entire state
+
+EXAMPLES OF STATE RANGES:
+- Madhya Pradesh: 450001-488448 (covers Indore, Bhopal, Gwalior, Jabalpur, etc.)
+- Maharashtra: 400001-445402 (covers Mumbai, Pune, Nagpur, etc.)
+- Karnataka: 560001-591346 (covers Bangalore, Mysore, Mangalore, etc.)
+
+OUTPUT FORMAT (provide complete ranges for ${location}):
+{
+  "pinCodeRanges": ["XXXXXX-YYYYYY", "XXXXXX-YYYYYY", ...]
+}
+
+CRITICAL: Return OFFICIAL ranges assigned to ${location} by India Post. Cover ENTIRE state. No markdown, no explanations.`;
+    } else {
+      // City-level search (default)
+      pinCodePrompt = `You are a pin code database. Return ONLY valid JSON with pin codes for the specified Indian city.
 
 Task: Provide the most commonly used pin codes (postal codes) for "${location}", India.
 
@@ -1203,8 +1370,19 @@ OUTPUT FORMAT:
 }
 
 CRITICAL: Valid JSON only. No markdown, no explanations.`;
+    }
 
-    const result = await model.generateContent(pinCodePrompt);
+    console.log(
+      `   📍 Detected location type: ${
+        isCountry ? "Country" : isState ? "State" : "City"
+      }`
+    );
+
+    const result = await generateWithRetry(model, pinCodePrompt, {
+      maxRetries: 3,
+      initialDelay: 2000,
+      fallbackModels: ["gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest"],
+    });
     const response = await result.response;
     let geminiText = response.text().trim();
 
@@ -1222,15 +1400,52 @@ CRITICAL: Valid JSON only. No markdown, no explanations.`;
     }
 
     const pinCodeData = JSON.parse(geminiText);
+    const locationType = isCountry ? "country" : isState ? "state" : "city";
+    
+    // Handle ranges (state/country) vs specific codes (city)
+    const fetchedRanges = pinCodeData.pinCodeRanges || [];
     const fetchedPinCodes = pinCodeData.pinCodes || [];
+    
+    if (fetchedRanges.length > 0) {
+      // State/Country: Store ranges
+      console.log(
+        `✅ Fetched ${fetchedRanges.length} pin code ranges for "${location}" (${locationType})`
+      );
+      console.log(`   Ranges: ${fetchedRanges.slice(0, 3).join(", ")}${fetchedRanges.length > 3 ? "..." : ""}`);
+      
+      // Save to database for persistence
+      await prisma.cityPinCode.create({
+        data: {
+          city: locationLower,
+          pinCodes: fetchedRanges, // Store ranges as strings
+          source: `dynamic-${locationType}-ranges`,
+        },
+      });
 
-    if (fetchedPinCodes.length > 0) {
-      // Save to database for persistence (persistent storage)
+      // Cache in memory for immediate reuse
+      pinCodeCache.set(locationLower, {
+        data: fetchedRanges,
+        timestamp: Date.now(),
+      });
+
+      // Return all ranges as comma-separated string for prompt
+      return fetchedRanges.join(", ");
+      
+    } else if (fetchedPinCodes.length > 0) {
+      // City: Store specific codes
+      console.log(
+        `✅ Fetched and saved ${fetchedPinCodes.length} pin codes for "${location}" (${locationType}) to database + cache`
+      );
+      console.log(
+        `   Sample pin codes: ${fetchedPinCodes.slice(0, 5).join(", ")}`
+      );
+      
+      // Save to database for persistence
       await prisma.cityPinCode.create({
         data: {
           city: locationLower,
           pinCodes: fetchedPinCodes,
-          source: "dynamic",
+          source: `dynamic-${locationType}`,
         },
       });
 
@@ -1240,14 +1455,7 @@ CRITICAL: Valid JSON only. No markdown, no explanations.`;
         timestamp: Date.now(),
       });
 
-      console.log(
-        `✅ Fetched and saved ${fetchedPinCodes.length} pin codes for "${location}" to database + cache`
-      );
-      console.log(
-        `   Sample pin codes: ${fetchedPinCodes.slice(0, 5).join(", ")}`
-      );
-
-      // Return first 10 pin codes
+      // Return first 10 pin codes for cities
       return fetchedPinCodes.slice(0, 10).join(", ");
     } else {
       console.log(`⚠️ No pin codes found for "${location}"`);
@@ -1440,6 +1648,50 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
       .json({ error: "Business Type and Location are required" });
   }
 
+  // Check if using cached results (skip credit check)
+  const useCached = req.query.useCached === "true";
+
+  // Upfront credit check (skip if using cached results)
+  if (req.user?.id && !useCached) {
+    try {
+      // Estimate typical cost: 2 Serper calls + 3 Gemini calls = ~$0.0023
+      const estimatedCost = 0.003; // Buffer for safety
+      const creditCheck = await checkCredits(req.user.id, estimatedCost);
+      
+      if (!creditCheck.sufficient) {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+
+        res.write(
+          `data: ${JSON.stringify({
+            type: "error",
+            error: "Insufficient credits",
+            message: `You need at least $${estimatedCost.toFixed(4)} to perform this search. Current balance: $${creditCheck.currentBalance.toFixed(4)}. Please add credits to continue.`,
+          })}\n\n`
+        );
+        res.end();
+        return;
+      }
+      console.log(`✅ Credit check passed: $${creditCheck.currentBalance.toFixed(4)} available`);
+    } catch (error) {
+      console.error("Credit check failed:", error);
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+
+      res.write(
+        `data: ${JSON.stringify({
+          type: "error",
+          error: "Credit check failed",
+          message: "Unable to verify credit balance. Please try again.",
+        })}\n\n`
+      );
+      res.end();
+      return;
+    }
+  }
+
   console.log("\n=== LinkedIn Search (Gemini + Serper Hybrid) ===");
   console.log("Business Type:", businessType);
   console.log("Location:", location);
@@ -1455,8 +1707,6 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
   let creditDeducted = false;
 
   // Fetch previously seen people for this user (skip if using cached results)
-  const useCached = req.query.useCached === "true";
-
   if (req.user?.id && !useCached) {
     try {
       const searchQuery = `${businessType}_${location}${
@@ -1550,9 +1800,9 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
 
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-    // Use gemini-2.5-flash (latest stable model)
+    // Use gemini-2.0-flash-exp (current stable/experimental model)
     let model;
-    let modelName = "gemini-2.5-flash";
+    let modelName = "gemini-2.0-flash-exp";
 
     model = genAI.getGenerativeModel({ model: modelName });
 
@@ -1644,8 +1894,8 @@ CRITICAL: Response MUST be valid JSON array with name, role, AND email fields. N
           }:${Date.now()}`
         : `people:${businessType}:${location}:${industry || "all"}`;
 
-    // Check if user explicitly wants cached results
-    const useCached = req.query.useCached === "true";
+    // useCached already defined at the top of the function (line 1666)
+    // No need to redeclare it here
 
     // If we have exclusions, force fresh Gemini call (skip cache)
     const geminiResult =
@@ -1655,12 +1905,20 @@ CRITICAL: Response MUST be valid JSON array with name, role, AND email fields. N
             console.log(
               `🔄 Forcing fresh Gemini call due to ${excludePeopleNames.length} exclusions`
             );
-            const result = await model.generateContent(geminiPrompt);
+            const result = await generateWithRetry(model, geminiPrompt, {
+              maxRetries: 3,
+              initialDelay: 2000,
+              fallbackModels: ["gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest"],
+            });
             return { data: result, cacheHit: false };
           })()
         : await getCachedGeminiResponse(cacheKey, async () => {
             geminiCallsCount++; // Only count if not cached
-            return await model.generateContent(geminiPrompt);
+            return await generateWithRetry(model, geminiPrompt, {
+              maxRetries: 3,
+              initialDelay: 2000,
+              fallbackModels: ["gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest"],
+            });
           });
 
     // If cache hit and user hasn't chosen yet, AND we have complete cached results, ask them
@@ -2245,6 +2503,50 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
     }
   }
 
+  // Check if using cached results (skip credit check)
+  const useCached = req.query.useCached === "true";
+
+  // Upfront credit check (skip if using cached results)
+  if (req.user?.id && !useCached) {
+    try {
+      // Estimate typical cost: 2 Serper calls + 1 Gemini call = ~$0.0021
+      const estimatedCost = 0.003; // Buffer for safety
+      const creditCheck = await checkCredits(req.user.id, estimatedCost);
+      
+      if (!creditCheck.sufficient) {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+
+        res.write(
+          `data: ${JSON.stringify({
+            type: "error",
+            error: "Insufficient credits",
+            message: `You need at least $${estimatedCost.toFixed(4)} to perform this search. Current balance: $${creditCheck.currentBalance.toFixed(4)}. Please add credits to continue.`,
+          })}\n\n`
+        );
+        res.end();
+        return;
+      }
+      console.log(`✅ Credit check passed: $${creditCheck.currentBalance.toFixed(4)} available`);
+    } catch (error) {
+      console.error("Credit check failed:", error);
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+
+      res.write(
+        `data: ${JSON.stringify({
+          type: "error",
+          error: "Credit check failed",
+          message: "Unable to verify credit balance. Please try again.",
+        })}\n\n`
+      );
+      res.end();
+      return;
+    }
+  }
+
   // Validate and cap leadCount based on search type
   const requestedLeads = specificBusinessName
     ? 1
@@ -2355,8 +2657,7 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
     console.log(`   Cached items: ${cachedResults.data.length}`);
   }
 
-  // Check if user wants cached complete results
-  const useCached = req.query.useCached === "true";
+  // Check if user wants cached complete results (already declared above)
 
   if (useCached) {
     if (hasCachedResults) {
@@ -2391,9 +2692,9 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
 
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-    // Use gemini-2.5-flash (latest stable model)
+    // Use gemini-2.0-flash-exp (current stable/experimental model)
     let model;
-    let modelName = "gemini-2.5-flash";
+    let modelName = "gemini-2.0-flash-exp";
 
     model = genAI.getGenerativeModel({ model: modelName });
 
@@ -2403,9 +2704,11 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
     let geminiPrompt;
 
     // Get pin codes for location (dynamically fetches if not in static data)
+    // For states/country, this returns ranges (e.g., "452001-458999")
+    // For cities, this returns specific codes (e.g., "452001, 452010")
     const locationPinCodes = await getPinCodesForLocation(location);
     const pinCodeInfo = locationPinCodes
-      ? `\n- Pin codes for ${location}: ${locationPinCodes}\n- Include pin codes in search queries for better accuracy`
+      ? `\n- Pin codes/ranges for ${location}: ${locationPinCodes}\n- Use these pin code references in search queries for better location accuracy`
       : "";
 
     if (specificBusinessName) {
@@ -2669,12 +2972,20 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
             console.log(
               `🔄 Forcing fresh Gemini call due to ${excludeBusinessNames.length} exclusions`
             );
-            const result = await model.generateContent(geminiPrompt);
+            const result = await generateWithRetry(model, geminiPrompt, {
+              maxRetries: 3,
+              initialDelay: 2000,
+              fallbackModels: ["gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest"],
+            });
             return { data: result, cacheHit: false };
           })()
         : await getCachedGeminiResponse(cacheKey, async () => {
             geminiCallsCount++; // Only count if not cached
-            return await model.generateContent(geminiPrompt);
+            return await generateWithRetry(model, geminiPrompt, {
+              maxRetries: 3,
+              initialDelay: 2000,
+              fallbackModels: ["gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest"],
+            });
           });
 
     // If cache hit and user hasn't chosen yet, AND we have complete cached results, ask them
@@ -2890,15 +3201,37 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
         console.log(`   Address: ${businessAddress}`);
         console.log(`   Phone: ${businessPhone || "Not available"}`);
 
-        // APOLLO.IO-STYLE LOCATION FILTERING
+        // INTELLIGENT LOCATION FILTERING (City/State/Country aware)
         // Parse address into structured components for precise matching
         const addressParts = businessAddress.split(",").map((p) => p.trim());
         const searchLocationLower = location.toLowerCase().trim();
 
-        // Extract city from address (typically 3rd from end, before state and country)
+        // Extract city, state, and country from address
+        // Typical format: "Street, Area, City, State Pincode, Country"
         let addressCity = null;
+        let addressState = null;
+        let addressCountry = null;
+
+        if (addressParts.length >= 1) {
+          // Country is typically the last part
+          addressCountry = addressParts[addressParts.length - 1]
+            .replace(/\d+/g, "")
+            .trim()
+            .toLowerCase();
+        }
+
+        if (addressParts.length >= 2) {
+          // State is typically 2nd from end (may include pincode)
+          const statePart = addressParts[addressParts.length - 2];
+          // Remove pincode from state (e.g., "Madhya Pradesh 452010" → "Madhya Pradesh")
+          addressState = statePart
+            .replace(/\d{5,6}/g, "")
+            .trim()
+            .toLowerCase();
+        }
+
         if (addressParts.length >= 3) {
-          // Get potential city (3rd from end)
+          // City is typically 3rd from end
           let potentialCity = addressParts[addressParts.length - 3];
 
           // Clean city name - remove postal codes and street indicators
@@ -2928,46 +3261,70 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
           }
         }
 
-        // STRICT Location matching logic - ONLY exact matches
+        // HIERARCHICAL LOCATION MATCHING (City → State → Country)
         let locationMatch = false;
         let matchReason = "";
+        let matchLevel = "";
 
-        if (addressCity) {
-          // ONLY exact city name match (case-insensitive)
-          if (addressCity === searchLocationLower) {
-            locationMatch = true;
-            matchReason = "Exact city match";
-          }
-          // Check if any word in the city name exactly matches
-          else {
-            const cityWords = addressCity.split(/[\s-]+/);
-            const searchWords = searchLocationLower.split(/[\s-]+/);
+        // Helper function to check exact match with word-by-word comparison
+        const isExactMatch = (extracted, searched) => {
+          if (!extracted) return false;
+          if (extracted === searched) return true;
 
-            // All search words must appear in city words
-            const allWordsMatch = searchWords.every((searchWord) =>
-              cityWords.some((cityWord) => cityWord === searchWord)
-            );
+          // Check if all words match
+          const extractedWords = extracted.split(/[\s-]+/);
+          const searchedWords = searched.split(/[\s-]+/);
 
-            if (allWordsMatch && cityWords.length === searchWords.length) {
-              locationMatch = true;
-              matchReason = "All words match exactly";
-            }
-          }
+          return (
+            searchedWords.length === extractedWords.length &&
+            searchedWords.every((word) => extractedWords.includes(word))
+          );
+        };
+
+        // Try matching at city level first
+        if (addressCity && isExactMatch(addressCity, searchLocationLower)) {
+          locationMatch = true;
+          matchReason = "City match";
+          matchLevel = "city";
+        }
+        // If city doesn't match, try state level
+        else if (
+          addressState &&
+          isExactMatch(addressState, searchLocationLower)
+        ) {
+          locationMatch = true;
+          matchReason = "State match";
+          matchLevel = "state";
+        }
+        // If state doesn't match, try country level
+        else if (
+          addressCountry &&
+          isExactMatch(addressCountry, searchLocationLower)
+        ) {
+          locationMatch = true;
+          matchReason = "Country match";
+          matchLevel = "country";
         }
 
-        // NO fallback - if city extraction failed or doesn't match, reject
-
-        // Filter out if no match
+        // Filter out if no match at any level
         if (!locationMatch) {
           console.log(`⚠️ LOCATION FILTER: Business NOT in "${location}"`);
           console.log(`   Address: "${businessAddress}"`);
           console.log(`   Extracted city: "${addressCity || "N/A"}"`);
-          console.log(`   Skipping - location mismatch`);
+          console.log(`   Extracted state: "${addressState || "N/A"}"`);
+          console.log(`   Extracted country: "${addressCountry || "N/A"}"`);
+          console.log(`   Skipping - no match at any level`);
           continue;
         }
 
         console.log(
-          `✅ Location verified: ${matchReason} - "${addressCity || location}"`
+          `✅ Location verified: ${matchReason} - "${
+            matchLevel === "city"
+              ? addressCity
+              : matchLevel === "state"
+              ? addressState
+              : addressCountry
+          }"`
         );
 
         // Extract detailed location (city, state, country) - only these 3 components
@@ -3319,36 +3676,51 @@ app.post("/api/parse-query", async (req, res) => {
 
   try {
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
-    const parsePrompt = `You are a query parser. Extract job role and location from the user's natural language query.
+    const parsePrompt = `You are a query parser for both professional people search AND business search. Extract the search parameters from the user's natural language query.
 
 User Query: "${query}"
 
 Extract:
-1. businessType: The job title/role (e.g., "ML Engineer", "Software Engineer", "Marketing Manager")
-2. location: The city or region (e.g., "Bangalore", "Mumbai", "Delhi")
-3. industry: Optional industry if mentioned (e.g., "Technology", "Healthcare", "Finance")
+1. businessType: 
+   - For PEOPLE: Job title/role (e.g., "ML Engineer", "Software Engineer", "Marketing Manager", "Data Scientist")
+   - For BUSINESSES: Business type (e.g., "Restaurant", "Cafe", "Hotel", "Hospital", "Retail Store", "IT Company")
+2. location: City, state, or region (e.g., "Bangalore", "Mumbai", "Delhi", "Maharashtra", "India")
+3. industry: Optional industry if explicitly mentioned (e.g., "Technology", "Healthcare", "Finance", "Food & Beverage")
 
-Rules:
-- Normalize job titles (e.g., "machine learning engineer" → "ML Engineer")
-- Normalize locations (e.g., "Bengaluru" → "Bangalore", "NCR" → "Delhi")
-- Extract industry only if explicitly mentioned
-- If location is unclear, use "India" as default
+NORMALIZATION RULES:
+- For job titles: "machine learning engineer" → "ML Engineer", "software dev" → "Software Engineer"
+- For businesses: "restaurants" → "Restaurant", "coffee shops" → "Cafe", "clinics" → "Clinic"
+- For locations: "Bengaluru" → "Bangalore", "NCR" → "Delhi", "Bombay" → "Mumbai"
+- Extract industry ONLY if explicitly mentioned in the query
+- If location is unclear or not mentioned, use "India" as default
+
+EXAMPLES:
+- "ML engineers in Bangalore" → businessType: "ML Engineer", location: "Bangalore", industry: ""
+- "Restaurants in Mumbai" → businessType: "Restaurant", location: "Mumbai", industry: ""
+- "Software companies in Pune" → businessType: "IT Company", location: "Pune", industry: ""
+- "Senior data scientists working in healthcare in Delhi" → businessType: "Data Scientist", location: "Delhi", industry: "Healthcare"
 
 Return ONLY valid JSON (no markdown, no explanation):
 {
-  "businessType": "extracted job title",
+  "businessType": "extracted job title or business type",
   "location": "extracted location",
   "industry": "extracted industry or empty string"
 }`;
 
     // Use caching for parse queries too
     const cacheKey = `parse:${query.toLowerCase().trim()}`;
-    const result = await getCachedGeminiResponse(cacheKey, async () => {
-      return await model.generateContent(parsePrompt);
+    const geminiResult = await getCachedGeminiResponse(cacheKey, async () => {
+      return await generateWithRetry(model, parsePrompt, {
+        maxRetries: 3,
+        initialDelay: 2000,
+        fallbackModels: ["gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest"],
+      });
     });
 
+    // getCachedGeminiResponse returns { data: result, cacheHit: boolean }
+    const result = geminiResult.data;
     const response = await result.response;
     let text = response.text().trim();
 

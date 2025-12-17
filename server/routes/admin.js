@@ -205,31 +205,32 @@ router.get("/user/:id", authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
-// POST /api/admin/user/:id/credits - Add credits to a user
+// POST /api/admin/user/:id/credits - Add or remove credits from a user
 router.post("/user/:id/credits", authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { amount, description } = req.body;
 
-    if (!amount || amount <= 0) {
+    if (amount === undefined || amount === null || amount === 0 || isNaN(amount)) {
       return res.status(400).json({ error: "Invalid amount" });
     }
 
+    // addCredits can handle both positive (add) and negative (remove) amounts
     const result = await addCredits(
       id,
-      amount,
-      "admin_adjustment",
-      description || `Admin adjustment by ${req.user.email}`
+      amount, // Can be positive or negative
+      amount > 0 ? "admin_adjustment" : "admin_deduction",
+      description || `Admin ${amount > 0 ? 'credit' : 'debit'} by ${req.user.email}`
     );
 
     res.json({
       success: true,
-      message: "Credits added successfully",
+      message: amount > 0 ? "Credits added successfully" : "Credits removed successfully",
       newBalance: result.newBalance,
     });
   } catch (error) {
-    console.error("Add credits error:", error);
-    res.status(500).json({ error: "Failed to add credits" });
+    console.error("Adjust credits error:", error);
+    res.status(500).json({ error: "Failed to adjust credits" });
   }
 });
 

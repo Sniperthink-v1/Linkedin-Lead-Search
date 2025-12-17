@@ -84,6 +84,12 @@ model SavedLead {
   category      String?
   searchDate    DateTime?
   
+  // Structured location fields (parsed from address/location)
+  city          String?
+  state         String?
+  country       String?
+  pincode       String?
+  
   // Metadata
   savedAt       DateTime @default(now())
   exported      Boolean  @default(false)

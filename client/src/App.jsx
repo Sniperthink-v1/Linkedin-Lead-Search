@@ -286,9 +286,10 @@ function App() {
       return;
     }
 
+    const now = Date.now();
+
     // Check rate limiting (skip for cached results)
     if (useCached === null) {
-      const now = Date.now();
       const timeSinceLastSearch = now - lastSearchTime;
       if (timeSinceLastSearch < SEARCH_COOLDOWN_MS) {
         const remainingSeconds = Math.ceil(
