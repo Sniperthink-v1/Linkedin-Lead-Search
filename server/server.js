@@ -1876,7 +1876,7 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
 
     const geminiPrompt = `You MUST return ONLY valid JSON. No explanations, no markdown, no text - ONLY a JSON array.
 
-Find 100 professionals whose CURRENT job title matches: "${businessType}"${industryText} in "${location}".
+Find ${requestedLeads} professionals whose CURRENT job title matches: "${businessType}"${industryText} in "${location}".
 
 JOB TITLE RULES - Core Keywords Required: [${keywordList}]
 
@@ -1903,7 +1903,7 @@ EMAIL REQUIREMENT:
 - Only include real, verified email addresses you are certain about
 - Better to leave blank than to provide incorrect information
 
-OUTPUT FORMAT - Return EXACTLY this JSON structure with 100 profiles:
+OUTPUT FORMAT - Return EXACTLY this JSON structure with ${requestedLeads} profiles:
 [
   {"name": "Full Name", "role": "Job Title", "email": "professional@email.com or empty string if unknown"},
   {"name": "Full Name", "role": "Job Title", "email": "professional@email.com or empty string if unknown"}
