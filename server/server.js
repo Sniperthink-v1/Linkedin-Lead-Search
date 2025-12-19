@@ -1280,13 +1280,43 @@ async function getPinCodesForLocation(location) {
 
     // Common Indian states for detection
     const indianStates = [
-      "andhra pradesh", "arunachal pradesh", "assam", "bihar", "chhattisgarh",
-      "goa", "gujarat", "haryana", "himachal pradesh", "jharkhand", "karnataka",
-      "kerala", "madhya pradesh", "maharashtra", "manipur", "meghalaya", "mizoram",
-      "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil nadu",
-      "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal",
-      "andaman and nicobar", "chandigarh", "dadra and nagar haveli", "daman and diu",
-      "delhi", "jammu and kashmir", "ladakh", "lakshadweep", "puducherry"
+      "andhra pradesh",
+      "arunachal pradesh",
+      "assam",
+      "bihar",
+      "chhattisgarh",
+      "goa",
+      "gujarat",
+      "haryana",
+      "himachal pradesh",
+      "jharkhand",
+      "karnataka",
+      "kerala",
+      "madhya pradesh",
+      "maharashtra",
+      "manipur",
+      "meghalaya",
+      "mizoram",
+      "nagaland",
+      "odisha",
+      "punjab",
+      "rajasthan",
+      "sikkim",
+      "tamil nadu",
+      "telangana",
+      "tripura",
+      "uttar pradesh",
+      "uttarakhand",
+      "west bengal",
+      "andaman and nicobar",
+      "chandigarh",
+      "dadra and nagar haveli",
+      "daman and diu",
+      "delhi",
+      "jammu and kashmir",
+      "ladakh",
+      "lakshadweep",
+      "puducherry",
     ];
 
     // Detect if location is a state or country
@@ -1401,18 +1431,22 @@ CRITICAL: Valid JSON only. No markdown, no explanations.`;
 
     const pinCodeData = JSON.parse(geminiText);
     const locationType = isCountry ? "country" : isState ? "state" : "city";
-    
+
     // Handle ranges (state/country) vs specific codes (city)
     const fetchedRanges = pinCodeData.pinCodeRanges || [];
     const fetchedPinCodes = pinCodeData.pinCodes || [];
-    
+
     if (fetchedRanges.length > 0) {
       // State/Country: Store ranges
       console.log(
         `✅ Fetched ${fetchedRanges.length} pin code ranges for "${location}" (${locationType})`
       );
-      console.log(`   Ranges: ${fetchedRanges.slice(0, 3).join(", ")}${fetchedRanges.length > 3 ? "..." : ""}`);
-      
+      console.log(
+        `   Ranges: ${fetchedRanges.slice(0, 3).join(", ")}${
+          fetchedRanges.length > 3 ? "..." : ""
+        }`
+      );
+
       // Save to database for persistence
       await prisma.cityPinCode.create({
         data: {
@@ -1430,7 +1464,6 @@ CRITICAL: Valid JSON only. No markdown, no explanations.`;
 
       // Return all ranges as comma-separated string for prompt
       return fetchedRanges.join(", ");
-      
     } else if (fetchedPinCodes.length > 0) {
       // City: Store specific codes
       console.log(
@@ -1439,7 +1472,7 @@ CRITICAL: Valid JSON only. No markdown, no explanations.`;
       console.log(
         `   Sample pin codes: ${fetchedPinCodes.slice(0, 5).join(", ")}`
       );
-      
+
       // Save to database for persistence
       await prisma.cityPinCode.create({
         data: {
@@ -1657,7 +1690,7 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
       // Estimate typical cost: 2 Serper calls + 3 Gemini calls = ~$0.0023
       const estimatedCost = 0.003; // Buffer for safety
       const creditCheck = await checkCredits(req.user.id, estimatedCost);
-      
+
       if (!creditCheck.sufficient) {
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
@@ -1667,13 +1700,21 @@ app.get("/api/search/people", authenticateToken, async (req, res) => {
           `data: ${JSON.stringify({
             type: "error",
             error: "Insufficient credits",
-            message: `You need at least $${estimatedCost.toFixed(4)} to perform this search. Current balance: $${creditCheck.currentBalance.toFixed(4)}. Please add credits to continue.`,
+            message: `You need at least $${estimatedCost.toFixed(
+              4
+            )} to perform this search. Current balance: $${creditCheck.currentBalance.toFixed(
+              4
+            )}. Please add credits to continue.`,
           })}\n\n`
         );
         res.end();
         return;
       }
-      console.log(`✅ Credit check passed: $${creditCheck.currentBalance.toFixed(4)} available`);
+      console.log(
+        `✅ Credit check passed: $${creditCheck.currentBalance.toFixed(
+          4
+        )} available`
+      );
     } catch (error) {
       console.error("Credit check failed:", error);
       res.setHeader("Content-Type", "text/event-stream");
@@ -1908,7 +1949,10 @@ CRITICAL: Response MUST be valid JSON array with name, role, AND email fields. N
             const result = await generateWithRetry(model, geminiPrompt, {
               maxRetries: 3,
               initialDelay: 2000,
-              fallbackModels: ["gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest"],
+              fallbackModels: [
+                "gemini-1.5-flash-latest",
+                "gemini-1.5-flash-8b-latest",
+              ],
             });
             return { data: result, cacheHit: false };
           })()
@@ -1917,7 +1961,10 @@ CRITICAL: Response MUST be valid JSON array with name, role, AND email fields. N
             return await generateWithRetry(model, geminiPrompt, {
               maxRetries: 3,
               initialDelay: 2000,
-              fallbackModels: ["gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest"],
+              fallbackModels: [
+                "gemini-1.5-flash-latest",
+                "gemini-1.5-flash-8b-latest",
+              ],
             });
           });
 
@@ -2512,7 +2559,7 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
       // Estimate typical cost: 2 Serper calls + 1 Gemini call = ~$0.0021
       const estimatedCost = 0.003; // Buffer for safety
       const creditCheck = await checkCredits(req.user.id, estimatedCost);
-      
+
       if (!creditCheck.sufficient) {
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
@@ -2522,13 +2569,21 @@ app.get("/api/search/business", authenticateToken, async (req, res) => {
           `data: ${JSON.stringify({
             type: "error",
             error: "Insufficient credits",
-            message: `You need at least $${estimatedCost.toFixed(4)} to perform this search. Current balance: $${creditCheck.currentBalance.toFixed(4)}. Please add credits to continue.`,
+            message: `You need at least $${estimatedCost.toFixed(
+              4
+            )} to perform this search. Current balance: $${creditCheck.currentBalance.toFixed(
+              4
+            )}. Please add credits to continue.`,
           })}\n\n`
         );
         res.end();
         return;
       }
-      console.log(`✅ Credit check passed: $${creditCheck.currentBalance.toFixed(4)} available`);
+      console.log(
+        `✅ Credit check passed: $${creditCheck.currentBalance.toFixed(
+          4
+        )} available`
+      );
     } catch (error) {
       console.error("Credit check failed:", error);
       res.setHeader("Content-Type", "text/event-stream");
@@ -2975,7 +3030,10 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
             const result = await generateWithRetry(model, geminiPrompt, {
               maxRetries: 3,
               initialDelay: 2000,
-              fallbackModels: ["gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest"],
+              fallbackModels: [
+                "gemini-1.5-flash-latest",
+                "gemini-1.5-flash-8b-latest",
+              ],
             });
             return { data: result, cacheHit: false };
           })()
@@ -2984,7 +3042,10 @@ CRITICAL: Valid JSON only. Return ONLY businesses you are absolutely certain exi
             return await generateWithRetry(model, geminiPrompt, {
               maxRetries: 3,
               initialDelay: 2000,
-              fallbackModels: ["gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest"],
+              fallbackModels: [
+                "gemini-1.5-flash-latest",
+                "gemini-1.5-flash-8b-latest",
+              ],
             });
           });
 
@@ -3715,7 +3776,10 @@ Return ONLY valid JSON (no markdown, no explanation):
       return await generateWithRetry(model, parsePrompt, {
         maxRetries: 3,
         initialDelay: 2000,
-        fallbackModels: ["gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest"],
+        fallbackModels: [
+          "gemini-1.5-flash-latest",
+          "gemini-1.5-flash-8b-latest",
+        ],
       });
     });
 

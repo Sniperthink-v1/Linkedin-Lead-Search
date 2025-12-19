@@ -81,21 +81,29 @@ function App() {
   }, []);
 
   const fetchUserData = async (token) => {
-    try {
-      const response = await fetch(`${API_URL}/api/auth/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const data = await response.json();
-      if (data.success) {
-        setUser(data.user);
-        localStorage.setItem("user", JSON.stringify(data.user));
-      }
-    } catch (error) {
-      console.error("Failed to fetch user data:", error);
+  try {
+    const response = await fetch(API_URL + '/api/auth/me', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (response.status === 401) {
+      // Token expired or invalid - logout the user
+      handleLogout();
+      setShowAuthModal(true);
+      return;
     }
-  };
+
+    const data = await response.json();
+    if (data.success) {
+      setUser(data.user);
+      localStorage.setItem("user", JSON.stringify(data.user));
+    }
+  } catch (error) {
+    console.error("Failed to fetch user data:", error);
+  }
+};
 
   const handleLoginSuccess = (userData, token) => {
     setIsAuthenticated(true);
@@ -104,11 +112,14 @@ function App() {
   };
 
   const handleLogout = () => {
-    setIsAuthenticated(false);
-    setUser(null);
-    setLeads([]);
-    setSearched(false);
-  };
+  setIsAuthenticated(false);
+  setUser(null);
+  setLeads([]);
+  setSearched(false);
+  localStorage.removeItem("authToken");
+  localStorage.removeItem("user");
+  setShowAuthModal(true);
+};
 
   const handleCopyLink = (link) => {
     navigator.clipboard.writeText(link);
@@ -504,6 +515,38 @@ function App() {
       setPendingSearchParams(null);
     }
   };
+
+  // Auto logout when JWT expires
+  const parseJwt = (token) => {
+    try {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c){ return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2); }).join(''));
+      return JSON.parse(jsonPayload);
+    } catch (e) {
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+    const payload = parseJwt(token);
+    const expMs = payload?.exp ? payload.exp * 1000 : null;
+    if (!expMs) return;
+    if (expMs <= Date.now()) {
+      handleLogout();
+      setShowAuthModal(true);
+      return;
+    }
+    const timeout = expMs - Date.now() + 1000;
+    const id = setTimeout(() => {
+      handleLogout();
+      setShowAuthModal(true);
+    }, timeout);
+    return () => clearTimeout(id);
+  }, [isAuthenticated]);
+
 
   return (
     <div className="min-h-screen bg-darker p-6 md:p-12">
@@ -1102,3 +1145,4 @@ function App() {
 }
 
 export default App;
+
