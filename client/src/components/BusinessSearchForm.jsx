@@ -6,6 +6,7 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
     businessType: "",
     location: "",
     leadCount: 20,
+    leadPreset: "normal",
   });
 
   const [quickBusinessName, setQuickBusinessName] = useState("");
@@ -17,7 +18,18 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSearch(formData);
+    // Map preset to concrete lead count ranges (server expects an int)
+    const presetToCount = {
+      few: 12, // represent 10-15
+      normal: 28, // represent 25-30
+      high: 50, // represent 45-50
+    };
+
+    const leadCount =
+      presetToCount[formData.leadPreset] ||
+      Math.min(50, Math.max(1, formData.leadCount || 20));
+
+    onSearch({ ...formData, leadCount });
   };
 
   const handleQuickSearch = (e) => {
@@ -212,30 +224,29 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
               }
               required
             />
-            <p className="text-xs text-gray-500 mt-1">City, State, or Country</p>
+            <p className="text-xs text-gray-500 mt-1">
+              City, State, or Country
+            </p>
           </div>
           <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-medium text-gray-400">
-              Number of Leads (Max 50)
+              Number of Leads
             </label>
-            <input
-              type="number"
-              min="1"
-              max="50"
-              placeholder="e.g. 20"
+            <select
               className="w-full bg-darker border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
-              value={formData.leadCount}
+              value={formData.leadPreset}
               onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  leadCount: Math.min(
-                    50,
-                    Math.max(1, parseInt(e.target.value) || 1)
-                  ),
-                })
+                setFormData({ ...formData, leadPreset: e.target.value })
               }
               required
-            />
+            >
+              <option value="few">Few Leads</option>
+              <option value="normal">Normal Leads</option>
+              <option value="high">High Leads</option>
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Few: ~10-15, Normal: ~25-30, High: ~45-50
+            </p>
           </div>
         </div>
 
