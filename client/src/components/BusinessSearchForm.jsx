@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Search, Loader2, Building2, User } from "lucide-react";
+import { Search, Loader2, Building2 } from "lucide-react";
 
 const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
   const [formData, setFormData] = useState({
@@ -11,8 +11,6 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
 
   const [quickBusinessName, setQuickBusinessName] = useState("");
   const [quickLocation, setQuickLocation] = useState("");
-  const [ownerName, setOwnerName] = useState("");
-  const [ownerLocation, setOwnerLocation] = useState("");
 
   const isDisabled = isLoading || cooldown > 0;
 
@@ -45,18 +43,6 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
     });
   };
 
-  const handleOwnerSearch = (e) => {
-    e.preventDefault();
-    if (!ownerName.trim() || !ownerLocation.trim()) return;
-
-    // Send owner search
-    onSearch({
-      ownerName: ownerName,
-      location: ownerLocation,
-      businessType: "",
-      leadCount: 10,
-    });
-  };
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
@@ -84,9 +70,6 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
             type="text"
             placeholder="Location (e.g., Delhi, Karnataka, India)"
             className="bg-darker border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
-            value={quickLocation}
-            onChange={(e) => setQuickLocation(e.target.value)}
-            disabled={isDisabled}
           />
         </div>
         <div className="flex justify-between items-center mt-3">
@@ -122,63 +105,6 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
         </div>
       </form>
 
-      {/* Search by Owner Name */}
-      <form
-        onSubmit={handleOwnerSearch}
-        className="bg-dark p-6 rounded-2xl shadow-2xl border border-gray-800"
-      >
-        <div className="flex items-center gap-2 mb-3">
-          <User className="w-5 h-5 text-green-500" />
-          <h3 className="text-lg font-semibold text-white">
-            Search by Owner Name
-          </h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <input
-            type="text"
-            placeholder="e.g., Ratan Tata, Mukesh Ambani"
-            className="bg-darker border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
-            value={ownerName}
-            onChange={(e) => setOwnerName(e.target.value)}
-            disabled={isDisabled}
-          />
-          <input
-            type="text"
-            placeholder="Location (e.g., Delhi, Karnataka, India)"
-            className="bg-darker border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
-            value={ownerLocation}
-            onChange={(e) => setOwnerLocation(e.target.value)}
-            disabled={isDisabled}
-          />
-        </div>
-        <div className="flex justify-between items-center mt-3">
-          <p className="text-xs text-gray-500">
-            {cooldown > 0 ? "" : "Find businesses owned by a specific person"}
-          </p>
-          <button
-            type="submit"
-            disabled={isDisabled || !ownerName.trim() || !ownerLocation.trim()}
-            className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="animate-spin w-5 h-5" />
-                Searching...
-              </>
-            ) : cooldown > 0 ? (
-              <>
-                <Loader2 className="animate-spin w-5 h-5" />
-                Wait {cooldown}s
-              </>
-            ) : (
-              <>
-                <Search className="w-5 h-5" />
-                Search
-              </>
-            )}
-          </button>
-        </div>
-      </form>
 
       {/* Divider */}
       <div className="flex items-center gap-4">
@@ -244,9 +170,6 @@ const BusinessSearchForm = ({ onSearch, isLoading, cooldown = 0 }) => {
               <option value="normal">Normal Leads</option>
               <option value="high">High Leads</option>
             </select>
-            <p className="text-xs text-gray-500 mt-1">
-              Few: ~10-15, Normal: ~25-30, High: ~45-50
-            </p>
           </div>
         </div>
 
